@@ -1,0 +1,66 @@
+[package]
+name = "void-claw"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "void-claw"
+path = "src/main.rs"
+
+[dependencies]
+# CLI
+clap = { version = "4", features = ["derive"] }
+
+# Config
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+serde_json = "1"
+
+# TUI
+ratatui = "0.29"
+crossterm = { version = "0.28", features = ["event-stream"] }
+
+# HTTP server (exec bridge)
+axum = "0.7"
+tokio = { version = "1", features = ["full"] }
+
+# HTTP client (proxy forwarding)
+reqwest = { version = "0.12", features = ["blocking", "json", "stream"] }
+
+# MITM proxy / TLS
+rcgen = { version = "0.13", features = ["pem"] }
+rustls = "0.23"
+tokio-rustls = "0.26"
+rustls-pemfile = "2"
+webpki-roots = "0.26"
+httparse = "1"
+
+# Tracing + OpenTelemetry
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-appender = "0.2"
+opentelemetry = "0.27"
+opentelemetry_sdk = { version = "0.27", features = ["rt-tokio"] }
+opentelemetry-otlp = { version = "0.27", features = ["grpc-tonic", "http-proto"] }
+tracing-opentelemetry = "0.28"
+
+# Container PTY
+portable-pty = "0.8"
+vt100 = "0.15"
+alacritty_terminal = "0.26"
+
+# Utilities
+anyhow = "1"
+dirs = "5"
+walkdir = "2"
+globset = "0.4"
+ignore = "0.4"
+chrono = { version = "0.4", features = ["serde"] }
+futures = "0.3"
+uuid = { version = "1", features = ["v4"] }
+url = "2"
+base64 = "0.22"
+shell-words = "1.1"
+which = "7"
+libc = "0.2"
+tempfile = "3"

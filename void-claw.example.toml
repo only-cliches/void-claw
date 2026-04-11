@@ -1,0 +1,338 @@
+# void-claw.example.toml
+#
+# Main manager config for void-claw.
+# Per-project command rules, network policy, and agent instructions live in the
+# project's own void-claw-rules.toml file, not here.
+
+# Directory used to resolve Dockerfiles and the Docker build context.
+# The init flow uses `./docker` when it exists, otherwise it falls back to
+# `~/.config/void-claw/docker`.
+docker_dir = __VOID_CLAW_DOCKER_DIR__
+
+[manager]
+# Global rules file used by the manager for persisted approvals.
+# Use the canonical key below. `rules_file` still parses as an alias, but
+# `global_rules_file` is the clearer name to document.
+global_rules_file = "~/.config/void-claw/rules.toml"
+
+[workspace]
+# Root directory for managed workspace copies.
+# When a project does not set `workspace_path`, void-claw uses:
+#   <workspace.root>/<project.name>
+root = "~/agent_workspace"
+
+[agents.gemini]
+# Optional extra instructions appended into the generated Gemini guidance.
+# extra_instructions = ""
+
+# ---------------------------------------------------------------------------
+# Defaults applied to projects unless a project overrides them.
+# ---------------------------------------------------------------------------
+
+[defaults.sync]
+# Sync mode for managed workspaces. One of:
+#   workspace_only  - no sync back to canonical
+#   pushback        - seed from canonical, then push changes back
+#   bidirectional   - sync both directions
+#   pullthrough     - canonical wins on conflict
+#   direct          - mount canonical_path directly, no managed copy
+mode = "pushback"
+
+# Whether deletes in the workspace can propagate back to canonical.
+delete_propagation = false
+
+# Whether renames in the workspace can propagate back to canonical.
+rename_propagation = false
+
+# How symlinks are handled during workspace copy.
+# One of: reject, copy, follow
+symlink_policy = "reject"
+
+# Conflict winner when both sides changed.
+# One of: preserve_canonical, preserve_workspace
+conflict_policy = "preserve_canonical"
+
+# Global exclude patterns for workspace population.
+# These are layered with:
+# - [[projects]].exclude_patterns
+# - exclude_patterns in the project's void-claw-rules.toml
+global_exclude_patterns = [
+  ".*",
+  ".git",
+  ".git/**",
+  ".env",
+  ".env.*",
+  "*.pem",
+  "*.key",
+  "*.pfx",
+  "*.p12",
+  "id_rsa",
+  "id_ed25519",
+  "id_ecdsa",
+  ".ssh",
+  ".ssh/**",
+  ".gnupg",
+  ".gnupg/**",
+  ".aws",
+  ".aws/**",
+  ".claude",
+  ".claude/**",
+]
+
+[defaults.ui]
+# Width of the left sidebar in the main TUI, in columns.
+# The default is 24; increase this if your project names are longer.
+sidebar_width = 24
+
+[defaults.hostdo]
+# Local exec bridge used by the `hostdo` helper inside containers.
+server_port = 7878
+
+# Must be reachable from Docker containers.
+# Do not leave this on 127.0.0.1 or other loopback-only values.
+server_host = "0.0.0.0"
+
+# Env var name that carries the shared auth token for the exec bridge.
+token_env_var = "VOID_CLAW_TOKEN"
+
+# Executables that are always denied.
+# These are common shell escape or privilege escalation paths.
+denied_executables = ["sh", "bash", "zsh", "fish", "csh", "ksh", "sudo", "su", "doas"]
+
+# Additional string fragments that are denied if they appear in any argument.
+denied_argument_fragments = []
+
+# Optional server-side aliases for hostdo.
+# Values can be:
+# - a plain string
+# - a table with `cmd` and optional `cwd`
+#
+# `cwd` can use:
+# - "$CANONICAL" for the host repo path
+# - "$WORKSPACE" for the effective workspace path
+#
+# Examples:
+# command_aliases = { tests = "cargo test" }
+# command_aliases = { lint = { cmd = "cargo clippy", cwd = "$CANONICAL" } }
+# command_aliases = { build = { cmd = "npm run build", cwd = "$WORKSPACE" } }
+# command_aliases = {}
+
+[defaults.proxy]
+# Local proxy used for outbound HTTP/HTTPS policy enforcement.
+proxy_port = 8081
+
+# Must be reachable from Docker containers.
+proxy_host = "0.0.0.0"
+
+# If true, force all outbound HTTP/HTTPS traffic through proxy.
+strict_network = true
+
+# ---------------------------------------------------------------------------
+# Logging and telemetry.
+# ---------------------------------------------------------------------------
+
+[logging]
+# Directory for runtime state and logs.
+log_dir = "~/.local/share/void-claw"
+
+# Optional OpenTelemetry export.
+# Remove or leave commented out to disable.
+#
+# [logging.otlp]
+# Collector endpoint.
+# Examples:
+#   gRPC:      http://localhost:4317
+#   HTTP/proto http://localhost:4318/v1/traces
+# endpoint = "http://localhost:4317"
+#
+# One of: grpc, http
+# protocol = "grpc"
+#
+# Which events to export.
+# One of:
+#   all        - every hostdo and proxy event
+#   approvals  - only events that required a developer prompt
+#   none       - disable OTel spans
+# level = "approvals"
+
+# ---------------------------------------------------------------------------
+# Named environment profiles.
+# These are referenced by hostdo command rules in void-claw-rules.toml via
+# `env_profile`.
+# ---------------------------------------------------------------------------
+
+[env_profiles.node]
+vars = { NODE_ENV = "development" }
+
+# Add more named env profiles as needed.
+# [env_profiles.python]
+# vars = { PYTHONUNBUFFERED = "1" }
+
+# ---------------------------------------------------------------------------
+# Managed projects are optional.
+# Add one [[projects]] block per canonical repository when you want Void Claw
+# to manage a workspace. The CLI can still launch without any projects defined.
+# Project-specific hostdo overrides, sync overrides, and exclude patterns belong
+# inside each [[projects]] block when you add one later.
+# ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# Shared container defaults.
+# These are merged into every container profile.
+# ---------------------------------------------------------------------------
+
+[defaults.containers]
+# Optional default mount point inside the container.
+# If omitted, void-claw uses /workspace.
+# mount_target = "/workspace"
+
+# Optional default agent type for profiles that do not set one.
+# One of: none, claude, codex, gemini, opencode
+# agent = "none"
+
+# Optional mounts shared by all profiles.
+# `container` must be an absolute path inside the container.
+# `mode` is either "ro" or "rw".
+#
+# [[defaults.containers.mounts]]
+# host = "~/.gitconfig"
+# container = "/home/ubuntu/.gitconfig"
+# mode = "ro"
+
+# Env vars passed through to every container.
+# These must be variable names only, not NAME=value pairs.
+env_passthrough = ["TERM", "COLORTERM", "COLORFGBG"]
+
+# Optional hosts that bypass MITM handling for every profile.
+# Usually better to keep this empty and set bypasses per profile instead.
+# bypass_proxy = []
+
+# ---------------------------------------------------------------------------
+# Container profiles.
+# Put reusable image settings here. Each [[containers]] entry picks one profile.
+# ---------------------------------------------------------------------------
+
+[container_profiles.claude]
+image = "void-claw-claude:ubuntu-24.04"
+
+# Optional override for this profile's mount point.
+# mount_target = "/workspace"
+
+# Controls which agent bootstrap files void-claw writes into the workspace.
+# One of: none, claude, codex, opencode
+agent = "claude"
+
+# Optional profile-specific env passthrough.
+# env_passthrough = ["ANTHROPIC_API_KEY"]
+
+# Hosts that should bypass MITM TLS interception for this profile.
+bypass_proxy = [
+  "api.anthropic.com",
+  "claude.ai",
+  "platform.claude.com",
+  "downloads.claude.ai",
+  "storage.googleapis.com",
+]
+
+# Persist Claude auth/session state across launches.
+[[container_profiles.claude.mounts]]
+host = "~/.claude.json"
+container = "/home/ubuntu/.claude.json"
+mode = "rw"
+
+[[container_profiles.claude.mounts]]
+host = "~/.claude"
+container = "/home/ubuntu/.claude"
+mode = "rw"
+
+[container_profiles.codex]
+image = "void-claw-codex:ubuntu-24.04"
+agent = "codex"
+
+# Optional profile-specific env passthrough.
+# env_passthrough = ["OPENAI_API_KEY"]
+
+bypass_proxy = [
+  "chatgpt.com",
+  ".chatgpt.com",
+  "chat.openai.com",
+  "auth.openai.com",
+]
+
+# Persist Codex auth/session state across launches.
+[[container_profiles.codex.mounts]]
+host = "~/.codex"
+container = "/home/ubuntu/.codex"
+mode = "rw"
+
+[[container_profiles.codex.mounts]]
+host = "~/.config/codex"
+container = "/home/ubuntu/.config/codex"
+mode = "rw"
+
+[container_profiles.gemini]
+image = "void-claw-gemini:ubuntu-24.04"
+agent = "gemini"
+
+# Optional profile-specific env passthrough.
+# env_passthrough = ["GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_GENAI_USE_VERTEXAI", "GOOGLE_CLOUD_PROJECT"]
+
+bypass_proxy = [
+  "*.googleapis.com",
+  "generativelanguage.googleapis.com",
+  "aistudio.google.com",
+  "accounts.google.com",
+  "oauth2.googleapis.com",
+  "www.googleapis.com",
+]
+
+# Persist Gemini auth/session state across launches.
+[[container_profiles.gemini.mounts]]
+host = "~/.gemini"
+container = "/home/ubuntu/.gemini"
+mode = "rw"
+
+[container_profiles.opencode]
+image = "void-claw-opencode:ubuntu-24.04"
+agent = "opencode"
+
+# Optional profile-specific env passthrough.
+# env_passthrough = ["OPENROUTER_API_KEY"]
+
+bypass_proxy = [
+  "models.dev",
+  "githubusercontent.com",
+  ".githubusercontent.com",
+]
+
+# Persist opencode auth/session state across launches.
+[[container_profiles.opencode.mounts]]
+host = "~/.opencode"
+container = "/home/ubuntu/.opencode"
+mode = "rw"
+
+[[container_profiles.opencode.mounts]]
+host = "~/.config/opencode"
+container = "/home/ubuntu/.config/opencode"
+mode = "rw"
+
+# ---------------------------------------------------------------------------
+# Launchable containers shown in the TUI.
+# These should only define the display name and the profile to use.
+# ---------------------------------------------------------------------------
+
+[[containers]]
+name = "claude-agent"
+profile = "claude"
+
+[[containers]]
+name = "codex-agent"
+profile = "codex"
+
+[[containers]]
+name = "opencode-agent"
+profile = "opencode"
+
+[[containers]]
+name = "gemini-agent"
+profile = "gemini"
