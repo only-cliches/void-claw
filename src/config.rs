@@ -190,7 +190,7 @@ pub struct UiDefaults {
 }
 
 fn default_sidebar_width() -> u16 {
-    24
+    32
 }
 
 impl Default for UiDefaults {
@@ -1109,8 +1109,8 @@ canonical_path = "{}"
     }
 
     #[test]
-    fn defaults_sidebar_width_defaults_to_24() {
-        assert_eq!(DefaultsConfig::default().ui.sidebar_width, 24);
+    fn defaults_sidebar_width_defaults_to_32() {
+        assert_eq!(DefaultsConfig::default().ui.sidebar_width, 32);
     }
 
     #[test]

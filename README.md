@@ -4,7 +4,7 @@
 
 </div>
 
-![Void Claw Demo](https://github.com/only-cliches/void-claw/blob/main/screenshot.png?raw=true)
+![Void Claw Demo](https://github.com/only-cliches/void-claw/blob/main/demo.png?raw=true)
 
 This project is an agent workspace manager designed to safely expose filtered project workspaces to AI coding agents. 
 

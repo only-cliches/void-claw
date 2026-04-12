@@ -81,8 +81,8 @@ global_exclude_patterns = [
 
 [defaults.ui]
 # Width of the left sidebar in the main TUI, in columns.
-# The default is 24; increase this if your project names are longer.
-sidebar_width = 24
+# The default is 32; increase this if your project names are longer.
+sidebar_width = 32
 
 [defaults.hostdo]
 # Local exec bridge used by the `hostdo` helper inside containers.
