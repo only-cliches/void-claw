@@ -1289,10 +1289,10 @@ fn render_container_picker(frame: &mut Frame, app: &mut App, area: Rect, dimmed:
         .and_then(|pi| cfg.projects.get(pi))
         .map(|proj| crate::config::effective_workspace_path(proj, &cfg.workspace));
     let block = Block::default()
-        .title(format!(" Launch Container for '{}' ", project_name))
+        .title(format!(" Run Container for '{}' ", project_name))
         .title_style(
             Style::default()
-                .fg(tone(Color::Yellow))
+                .fg(tone(Color::Cyan))
                 .add_modifier(Modifier::BOLD),
         )
         .borders(Borders::ALL)
@@ -1314,8 +1314,8 @@ fn render_container_picker(frame: &mut Frame, app: &mut App, area: Rect, dimmed:
                     .map(|path| path.display().to_string())
                     .unwrap_or_else(|| "<workspace>".to_string()),
                 Style::default()
-                    .fg(tone(Color::Yellow))
-                    .add_modifier(Modifier::BOLD),
+                    .fg(tone(Color::White))
+                    .add_modifier(Modifier::DIM),
             ),
             Span::styled(
                 " will be mounted inside the agent container at ",
@@ -1324,8 +1324,8 @@ fn render_container_picker(frame: &mut Frame, app: &mut App, area: Rect, dimmed:
             Span::styled(
                 "/workspace",
                 Style::default()
-                    .fg(tone(Color::Yellow))
-                    .add_modifier(Modifier::BOLD),
+                    .fg(tone(Color::White))
+                    .add_modifier(Modifier::DIM),
             ),
             Span::styled(
                 ", and the agent will start automatically.",

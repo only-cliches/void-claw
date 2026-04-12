@@ -6,7 +6,7 @@
 
 </div>
 
-![Agent Zero Demo](https://github.com/only-cliches/agent-zero/blob/main/demo.png?raw=true)
+![Agent Zero Demo](https://github.com/only-cliches/agent-zero/blob/main/demo.webm?raw=true)
 
 AI coding agents are powerful, and by default, completely unconstrained. Give one your terminal and it has your machine: your files, your credentials, your network. Agent Zero enforces a zero-trust boundary around every agent session, running agents in isolated Docker containers with policy-enforced access to your code, your host, and the outside world. Nothing gets through without a rule that allows it.
 
