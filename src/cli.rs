@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 #[derive(Parser)]
 #[command(
-    name = "void-claw",
+    name = "agent-zero",
     version,
     about = "Agent workspace manager — safely exposes filtered project workspaces to AI coding agents"
 )]
@@ -12,12 +12,12 @@ pub struct Cli {
     #[arg(short, long, value_name = "PATH")]
     pub config: Option<PathBuf>,
 
-    /// Generate a sample config file. Defaults to ./void-claw.toml if no path is given.
+    /// Generate a sample config file. Defaults to ./agent-zero.toml if no path is given.
     #[arg(
         long,
         value_name = "PATH",
         num_args = 0..=1,
-        default_missing_value = "void-claw.toml"
+        default_missing_value = "agent-zero.toml"
     )]
     pub init: Option<PathBuf>,
 }

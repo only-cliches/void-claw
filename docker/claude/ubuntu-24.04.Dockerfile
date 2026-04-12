@@ -1,11 +1,11 @@
-# void-claw + Claude Code CLI — Ubuntu 24.04 LTS
+# agent-zero + Claude Code CLI — Ubuntu 24.04 LTS
 #
 # Build (from repo root — must have already built the base image):
-#   docker build -t void-claw-claude:ubuntu-24.04 -f docker/claude/ubuntu-24.04.Dockerfile .
+#   docker build -t agent-zero-claude:ubuntu-24.04 -f docker/claude/ubuntu-24.04.Dockerfile .
 #
 # Or build both in one step:
 #   docker build -t my-agent:ubuntu-24.04 -f docker/ubuntu-24.04.Dockerfile . \
-#   && docker build -t void-claw-claude:ubuntu-24.04 -f docker/claude/ubuntu-24.04.Dockerfile .
+#   && docker build -t agent-zero-claude:ubuntu-24.04 -f docker/claude/ubuntu-24.04.Dockerfile .
 
 FROM my-agent:ubuntu-24.04
 

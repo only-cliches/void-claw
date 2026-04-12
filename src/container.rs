@@ -307,7 +307,7 @@ mod tests {
 
     #[test]
     fn gemini_home_args_mounts_both_possible_homes() {
-        let root = std::env::temp_dir().join(format!("void-claw-gemini-home-{}", uuid::Uuid::new_v4()));
+        let root = std::env::temp_dir().join(format!("agent-zero-gemini-home-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&root).expect("create temp dir");
         let mut args = Vec::new();
         append_gemini_home_args(&mut args, &root).expect("append gemini args");
@@ -382,7 +382,7 @@ fn extract_claude_keychain_credential() -> Option<String> {
 
 #[cfg(target_os = "macos")]
 fn read_claude_setup_token() -> Option<(String, ClaudeSessionSource)> {
-    if let Some(token) = read_keychain_value("void-claw-claude-setup-token") {
+    if let Some(token) = read_keychain_value("agent-zero-claude-setup-token") {
         return Some((token, ClaudeSessionSource::SetupTokenKeychain));
     }
     read_setup_token_file().map(|token| (token, ClaudeSessionSource::SetupTokenFile))
@@ -394,7 +394,7 @@ fn read_claude_setup_token() -> Option<(String, ClaudeSessionSource)> {
 }
 
 fn read_setup_token_file() -> Option<String> {
-    let path = dirs::config_dir()?.join("void-claw").join("claude-setup-token");
+    let path = dirs::config_dir()?.join("agent-zero").join("claude-setup-token");
     let contents = std::fs::read_to_string(path).ok()?;
     let token = contents.trim().to_string();
     if token.is_empty() { None } else { Some(token) }
@@ -418,7 +418,7 @@ pub fn spawn(
     rows: u16,
     cols: u16,
 ) -> Result<(ContainerSession, Vec<String>)> {
-    let ca_env_path = "/usr/local/share/ca-certificates/void-claw-ca.crt";
+    let ca_env_path = "/usr/local/share/ca-certificates/agent-zero-ca.crt";
     let no_proxy = if strict_network {
         compose_no_proxy(&[])
     } else {
@@ -426,9 +426,9 @@ pub fn spawn(
     };
     let mount_str = ctr.mount_target.display().to_string();
 
-    let cidfile = std::env::temp_dir().join(format!("void-claw-cid-{}.txt", uuid::Uuid::new_v4()));
+    let cidfile = std::env::temp_dir().join(format!("agent-zero-cid-{}.txt", uuid::Uuid::new_v4()));
     let docker_run_name = format!(
-        "void-claw-{}-{}",
+        "agent-zero-{}-{}",
         sanitize_docker_name(&ctr.name),
         uuid::Uuid::new_v4().simple()
     );
@@ -496,7 +496,7 @@ pub fn spawn(
 
     // Prepare secure env file to prevent token leakage via `ps`
     let mut env_file = tempfile::Builder::new()
-        .prefix("void-claw-env-")
+        .prefix("agent-zero-env-")
         .tempfile()
         .context("failed to create temp env file")?;
 
@@ -514,19 +514,19 @@ pub fn spawn(
         writeln!(env_file, "{var}={ca_env_path}")?;
     }
 
-    writeln!(env_file, "VOID_CLAW_TOKEN={token}")?;
-    writeln!(env_file, "VOID_CLAW_SESSION_TOKEN={session_token}")?;
-    writeln!(env_file, "VOID_CLAW_PROJECT={project_name}")?;
-    writeln!(env_file, "VOID_CLAW_MOUNT_TARGET={mount_str}")?;
-    writeln!(env_file, "VOID_CLAW_URL={container_exec_url}")?;
+    writeln!(env_file, "AGENT_ZERO_TOKEN={token}")?;
+    writeln!(env_file, "AGENT_ZERO_SESSION_TOKEN={session_token}")?;
+    writeln!(env_file, "AGENT_ZERO_PROJECT={project_name}")?;
+    writeln!(env_file, "AGENT_ZERO_MOUNT_TARGET={mount_str}")?;
+    writeln!(env_file, "AGENT_ZERO_URL={container_exec_url}")?;
     writeln!(
         env_file,
-        "VOID_CLAW_STRICT_NETWORK={}",
+        "AGENT_ZERO_STRICT_NETWORK={}",
         if strict_network { "1" } else { "0" }
     )?;
     writeln!(
         env_file,
-        "VOID_CLAW_SCOPED_PROXY_ADDR={container_proxy_addr}"
+        "AGENT_ZERO_SCOPED_PROXY_ADDR={container_proxy_addr}"
     )?;
 
     if !strict_network {
@@ -687,7 +687,7 @@ pub fn spawn(
 
                 let staging_path = "/tmp/.zc-claude-credentials.json";
                 tempfile::Builder::new()
-                    .prefix("void-claw-claude-cred-")
+                    .prefix("agent-zero-claude-cred-")
                     .suffix(".json")
                     .tempfile()
                     .ok()

@@ -43,12 +43,12 @@ impl ProjectType {
     }
 }
 
-/// Create `void-claw-rules.toml` in a canonical directory if it does not exist.
+/// Create `zero-rules.toml` in a canonical directory if it does not exist.
 pub fn write_rules_if_missing(canonical_dir: &Path, project_type: ProjectType) -> Result<bool> {
     if matches!(project_type, ProjectType::None) {
         return Ok(false);
     }
-    let rules_path = canonical_dir.join("void-claw-rules.toml");
+    let rules_path = canonical_dir.join("zero-rules.toml");
     if rules_path.exists() {
         return Ok(false);
     }
@@ -160,7 +160,7 @@ fn aliases<const N: usize>(
         .collect()
 }
 
-/// Append a project block to `void-claw-rules.toml` using the built-in template.
+/// Append a project block to `zero-rules.toml` using the built-in template.
 pub fn append_project_block(
     config_path: &Path,
     project_name: &str,
@@ -237,7 +237,7 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .expect("clock before epoch")
             .as_nanos();
-        let dir = std::env::temp_dir().join(format!("void-claw-new-project-{prefix}-{nanos}"));
+        let dir = std::env::temp_dir().join(format!("agent-zero-new-project-{prefix}-{nanos}"));
         fs::create_dir_all(&dir).expect("create temp dir");
         dir
     }
@@ -272,7 +272,7 @@ mod tests {
     fn rules_write_is_idempotent_when_file_exists() {
         let root = unique_temp_dir("rules-idempotent");
         fs::create_dir_all(root.join("canon")).expect("create canon");
-        let rules_path = root.join("canon").join("void-claw-rules.toml");
+        let rules_path = root.join("canon").join("zero-rules.toml");
         fs::write(&rules_path, "sentinel").expect("write sentinel");
 
         let wrote = write_rules_if_missing(&root.join("canon"), ProjectType::Node).expect("write");
@@ -286,13 +286,13 @@ mod tests {
         fs::create_dir_all(root.join("canon")).expect("create canon");
         let wrote = write_rules_if_missing(&root.join("canon"), ProjectType::None).expect("write");
         assert!(!wrote);
-        assert!(!root.join("canon").join("void-claw-rules.toml").exists());
+        assert!(!root.join("canon").join("zero-rules.toml").exists());
     }
 
     #[test]
     fn config_append_block_parses_and_sets_sync_mode() {
         let root = unique_temp_dir("append-config");
-        let config_path = root.join("void-claw.toml");
+        let config_path = root.join("agent-zero.toml");
         let canon = root.join("canon");
         let docker_dir = root.join("docker-root");
         fs::create_dir_all(&canon).expect("create canon");
@@ -330,7 +330,7 @@ root = "{}"
     #[test]
     fn config_append_block_marks_direct_projects_non_disposable() {
         let root = unique_temp_dir("append-config-direct");
-        let config_path = root.join("void-claw.toml");
+        let config_path = root.join("agent-zero.toml");
         let canon = root.join("canon");
         let docker_dir = root.join("docker-root");
         fs::create_dir_all(&canon).expect("create canon");

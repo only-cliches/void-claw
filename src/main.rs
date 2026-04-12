@@ -31,6 +31,7 @@ mod tui;
 
 use anyhow::Result;
 use clap::Parser;
+use crossterm::style::Stylize;
 use std::io::{self, Write};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -50,7 +51,7 @@ async fn main() -> Result<()> {
         init::write_sample_config(&init_path)?;
         info!("config written to: {}", init_path.display());
         info!(
-            "edit it, then run: void-claw --config {}",
+            "edit it, then run: agent-zero --config {}",
             init_path.display()
         );
         return Ok(());
@@ -73,7 +74,7 @@ async fn main() -> Result<()> {
 
     // Bail early if docker is not available.
     if which::which("docker").is_err() {
-        anyhow::bail!("docker not found in PATH — void-claw requires Docker to run containers");
+        anyhow::bail!("docker not found in PATH — agent-zero requires Docker to run containers");
     }
 
     // Initialise tracing (+ optional OTel export) before anything else logs.
@@ -168,7 +169,7 @@ async fn main() -> Result<()> {
 }
 
 fn discover_default_config_path() -> Option<PathBuf> {
-    let cwd_candidate = PathBuf::from("void-claw.toml");
+    let cwd_candidate = PathBuf::from("agent-zero.toml");
     if cwd_candidate.exists() {
         return Some(cwd_candidate);
     }
@@ -182,7 +183,7 @@ fn discover_default_config_path() -> Option<PathBuf> {
 fn default_home_config_path() -> Result<PathBuf> {
     let home =
         dirs::home_dir().ok_or_else(|| anyhow::anyhow!("cannot determine home directory"))?;
-    Ok(home.join(".config/void-claw/void-claw.toml"))
+    Ok(home.join(".config/agent-zero/agent-zero.toml"))
 }
 
 enum ConfigCreationChoice {
@@ -193,14 +194,14 @@ enum ConfigCreationChoice {
 
 fn create_config_from_prompt() -> Result<Option<PathBuf>> {
     match prompt_config_creation_choice()? {
-        ConfigCreationChoice::CreateCwd => {
-            let path = PathBuf::from("void-claw.toml");
+        ConfigCreationChoice::CreateHome => {
+            let path = default_home_config_path()?;
             init::write_sample_config(&path)?;
             println!("created config: {}", path.display());
             Ok(Some(path))
         }
-        ConfigCreationChoice::CreateHome => {
-            let path = default_home_config_path()?;
+        ConfigCreationChoice::CreateCwd => {
+            let path = PathBuf::from("agent-zero.toml");
             init::write_sample_config(&path)?;
             println!("created config: {}", path.display());
             Ok(Some(path))
@@ -213,9 +214,13 @@ fn create_config_from_prompt() -> Result<Option<PathBuf>> {
 }
 
 fn prompt_config_creation_choice() -> Result<ConfigCreationChoice> {
+    let cwd = std::env::current_dir()?;
     println!("No config file found.");
-    println!("1. Create default config in cwd");
-    println!("2. Create default config at ~/.config/void-claw/void-claw.toml");
+    println!(
+        "1. Create default config at ~/.config/agent-zero/agent-zero.toml {}",
+        "(Recommended)".dark_grey()
+    );
+    println!("2. Create default config at {}/agent-zero.toml", cwd.display());
     println!("3. Cancel and close");
     print!("Select an option [1-3]: ");
     io::stdout().flush()?;
@@ -223,8 +228,8 @@ fn prompt_config_creation_choice() -> Result<ConfigCreationChoice> {
     let mut input = String::new();
     io::stdin().read_line(&mut input)?;
     let choice = match input.trim() {
-        "1" => ConfigCreationChoice::CreateCwd,
-        "2" => ConfigCreationChoice::CreateHome,
+        "1" => ConfigCreationChoice::CreateHome,
+        "2" => ConfigCreationChoice::CreateCwd,
         _ => ConfigCreationChoice::Cancel,
     };
     Ok(choice)

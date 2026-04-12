@@ -1,6 +1,6 @@
-/// Parses `void-claw-rules.toml` files and composes global + per-project rules.
+/// Parses `zero-rules.toml` files and composes global + per-project rules.
 ///
-/// `void-claw-rules.toml` lives in the canonical project root (committed to git).
+/// `zero-rules.toml` lives in the canonical project root (committed to git).
 /// It controls what the AI agent is allowed to do: which host-side commands
 /// can run, and which network destinations are reachable.
 use anyhow::{Context, Result};
@@ -55,12 +55,12 @@ impl Default for NetworkPolicy {
     }
 }
 
-// ── void-claw-rules.toml schema ───────────────────────────────────────────────────
+// ── zero-rules.toml schema ───────────────────────────────────────────────────
 
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
 pub struct ProjectRules {
     /// Optional instructions for a human or LLM agent. This field is preserved
-    /// across automatic edits to this file (e.g. when void-claw appends a new
+    /// across automatic edits to this file (e.g. when agent-zero appends a new
     /// `hostdo` command rule).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub llm_instructions: Option<String>,
@@ -272,15 +272,15 @@ fn host_matches(pattern: &str, host: &str) -> bool {
 
 // ── Loading / saving ─────────────────────────────────────────────────────────
 
-/// Load a `void-claw-rules.toml` file.  Returns a default (empty) rule set if the
+/// Load a `zero-rules.toml` file.  Returns a default (empty) rule set if the
 /// file does not exist, rather than an error.
 pub fn load(path: &Path) -> Result<ProjectRules> {
     if !path.exists() {
         return Ok(ProjectRules::default());
     }
     let raw = std::fs::read_to_string(path)
-        .with_context(|| format!("reading void-claw-rules.toml: {}", path.display()))?;
-    toml::from_str(&raw).with_context(|| format!("parsing void-claw-rules.toml: {}", path.display()))
+        .with_context(|| format!("reading zero-rules.toml: {}", path.display()))?;
+    toml::from_str(&raw).with_context(|| format!("parsing zero-rules.toml: {}", path.display()))
 }
 
 /// Append an auto-approved command to the rules file at `path`.
@@ -330,8 +330,8 @@ pub fn write_rules_file(path: &Path, rules: &ProjectRules, is_new: bool) -> Resu
 }
 
 const RULES_FILE_HEADER: &str = "\
-# void-claw-rules.toml — policy for what the AI agent can do in this project.
-# Commit this file to your repository. void-claw reads it but never pushes
+# zero-rules.toml — policy for what the AI agent can do in this project.
+# Commit this file to your repository. agent-zero reads it but never pushes
 # changes back during workspace sync.
 #
 # Preferred place for *human/LLM instructions*:
@@ -479,9 +479,9 @@ policy = "allow"
             .duration_since(UNIX_EPOCH)
             .expect("clock before epoch")
             .as_nanos();
-        let dir = std::env::temp_dir().join(format!("void-claw-rules-test-{nonce}"));
+        let dir = std::env::temp_dir().join(format!("agent-zero-rules-test-{nonce}"));
         std::fs::create_dir_all(&dir).expect("create temp dir");
-        let path = dir.join("void-claw-rules.toml");
+        let path = dir.join("zero-rules.toml");
         let argv = vec!["cargo".to_string(), "test".to_string()];
 
         append_auto_approval(&path, &argv, "$WORKSPACE").expect("first append");
@@ -501,13 +501,13 @@ policy = "allow"
             .duration_since(UNIX_EPOCH)
             .expect("clock before epoch")
             .as_nanos();
-        let dir = std::env::temp_dir().join(format!("void-claw-rules-header-{nonce}"));
+        let dir = std::env::temp_dir().join(format!("agent-zero-rules-header-{nonce}"));
         std::fs::create_dir_all(&dir).expect("create temp dir");
-        let path = dir.join("void-claw-rules.toml");
+        let path = dir.join("zero-rules.toml");
 
         write_rules_file(&path, &ProjectRules::default(), false).expect("write");
         let s = std::fs::read_to_string(&path).expect("read");
-        assert!(s.starts_with("# void-claw-rules.toml — policy"), "missing header prefix");
+        assert!(s.starts_with("# zero-rules.toml — policy"), "missing header prefix");
         assert!(
             s.contains("Preferred place for *human/LLM instructions*"),
             "missing instruction hint"
@@ -523,14 +523,14 @@ policy = "allow"
             .duration_since(UNIX_EPOCH)
             .expect("clock before epoch")
             .as_nanos();
-        let dir = std::env::temp_dir().join(format!("void-claw-rules-header-append-{nonce}"));
+        let dir = std::env::temp_dir().join(format!("agent-zero-rules-header-append-{nonce}"));
         std::fs::create_dir_all(&dir).expect("create temp dir");
-        let path = dir.join("void-claw-rules.toml");
+        let path = dir.join("zero-rules.toml");
 
         append_auto_approval(&path, &["echo".to_string(), "hi".to_string()], "/tmp")
             .expect("append");
         let s = std::fs::read_to_string(&path).expect("read");
-        assert!(s.starts_with("# void-claw-rules.toml — policy"), "missing header after append");
+        assert!(s.starts_with("# zero-rules.toml — policy"), "missing header after append");
 
         let _ = std::fs::remove_file(&path);
         let _ = std::fs::remove_dir(&dir);

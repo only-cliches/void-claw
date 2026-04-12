@@ -1,9 +1,9 @@
-/// MITM HTTP/HTTPS proxy enforcing network policies from void-claw-rules.toml.
+/// MITM HTTP/HTTPS proxy enforcing network policies from zero-rules.toml.
 ///
 /// Containers route all traffic through this proxy. Plain HTTP requests are
 /// intercepted and parsed directly. HTTPS traffic is intercepted via CONNECT
 /// tunnels: the proxy terminates TLS with a per-domain leaf cert signed by
-/// the void-claw CA (which containers are configured to trust), inspects the
+/// the agent-zero CA (which containers are configured to trust), inspects the
 /// inner HTTP request, then forwards to the real server.
 ///
 /// Network policy (auto/prompt/deny) is determined by matching the composed
@@ -403,7 +403,7 @@ async fn handle_transparent_tls(mut stream: TcpStream, state: ProxyState) -> Res
         }
     };
     if !allowed {
-        write_error_any(&mut tls_stream, 403, "Forbidden by void-claw policy").await?;
+        write_error_any(&mut tls_stream, 403, "Forbidden by agent-zero policy").await?;
         return Ok(());
     }
     let url = format!("https://{host}{path}");
@@ -554,7 +554,7 @@ async fn handle_connect(mut stream: TcpStream, state: ProxyState) -> Result<()> 
         Ok(rules) => rules,
         Err(e) => {
             warn!("proxy rules load error: {e}");
-            write_error_any(&mut stream, 500, "Invalid void-claw-rules.toml configuration").await?;
+            write_error_any(&mut stream, 500, "Invalid zero-rules.toml configuration").await?;
             return Ok(());
         }
     };
@@ -577,7 +577,7 @@ async fn handle_connect(mut stream: TcpStream, state: ProxyState) -> Result<()> 
         }
     };
     if !preflight_allowed {
-        write_error_any(&mut stream, 403, "Forbidden by void-claw policy").await?;
+        write_error_any(&mut stream, 403, "Forbidden by agent-zero policy").await?;
         return Ok(());
     }
 
@@ -680,7 +680,7 @@ async fn handle_connect(mut stream: TcpStream, state: ProxyState) -> Result<()> 
     };
 
     if !allowed {
-        write_error_any(&mut tls_stream, 403, "Forbidden by void-claw policy").await?;
+        write_error_any(&mut tls_stream, 403, "Forbidden by agent-zero policy").await?;
         return Ok(());
     }
 
@@ -748,7 +748,7 @@ async fn handle_plain_http(mut stream: TcpStream, state: ProxyState) -> Result<(
         Ok(rules) => rules,
         Err(e) => {
             warn!("proxy rules load error: {e}");
-            write_error_any(&mut stream, 500, "Invalid void-claw-rules.toml configuration").await?;
+            write_error_any(&mut stream, 500, "Invalid zero-rules.toml configuration").await?;
             return Ok(());
         }
     };
@@ -773,7 +773,7 @@ async fn handle_plain_http(mut stream: TcpStream, state: ProxyState) -> Result<(
     };
 
     if !allowed {
-        write_error_any(&mut stream, 403, "Forbidden by void-claw policy").await?;
+        write_error_any(&mut stream, 403, "Forbidden by agent-zero policy").await?;
         return Ok(());
     }
 

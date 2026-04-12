@@ -3,15 +3,15 @@ use std::path::Path;
 
 use crate::config::AgentKind;
 use crate::rules::{ApprovalMode, HostdoRules, NetworkPolicy, NetworkRule, NetworkRules, ProjectRules};
-// ── void-claw-rules.toml starter ───────────────────────────────────────────────────
+// ── zero-rules.toml starter ───────────────────────────────────────────────────
 
-/// Generate a starter `void-claw-rules.toml` for the given agent kind.
+/// Generate a starter `zero-rules.toml` for the given agent kind.
 ///
 /// Includes common-sense `auto`-approved rules for developer tools (GitHub,
 /// npm, PyPI, crates.io) plus agent-specific API domains.  The default policy
 /// for anything not listed is `prompt`, so the developer still sees and
 /// approves unexpected destinations.
-/// Build the initial `void-claw-rules.toml` template for a given agent runtime.
+/// Build the initial `zero-rules.toml` template for a given agent runtime.
 pub fn generate_starter_project_rules(agent: &AgentKind) -> ProjectRules {
     let mut rules = vec![
         NetworkRule {
@@ -225,7 +225,7 @@ pub fn generate_starter_project_rules(agent: &AgentKind) -> ProjectRules {
 // ── inject_agent_config ───────────────────────────────────────────────────────
 
 /// Inject agent configuration files into the workspace and, if no
-/// `void-claw-rules.toml` exists in the canonical project directory, write a
+/// `zero-rules.toml` exists in the canonical project directory, write a
 /// starter one with sensible network allowlist rules.
 ///
 /// Called just before spawning a container so the files are present on the
@@ -237,9 +237,9 @@ pub fn generate_starter_project_rules(agent: &AgentKind) -> ProjectRules {
 /// - Codex:    `AGENTS.md`, `codex.json`
 /// - Gemini:   `GEMINI.md`
 /// - opencode: `AGENTS.md`
-/// - All:      `<canonical>/void-claw-rules.toml` (only if it does not already exist)
+/// - All:      `<canonical>/zero-rules.toml` (only if it does not already exist)
 /// - None:     nothing
-/// Seed a workspace with `void-claw-rules.toml` guidance for the selected agent.
+/// Seed a workspace with `zero-rules.toml` guidance for the selected agent.
 pub fn inject_agent_config(
     agent: &AgentKind,
     workspace_path: &Path,
@@ -251,7 +251,7 @@ pub fn inject_agent_config(
     _proxy_url: &str,
     extra_instructions: Option<&str>,
 ) -> anyhow::Result<bool> {
-    // Returns true if a new void-claw-rules.toml was created.
+    // Returns true if a new zero-rules.toml was created.
     if *agent == AgentKind::None {
         return Ok(false);
     }
@@ -264,9 +264,9 @@ pub fn inject_agent_config(
         )
     })?;
 
-    // Write a starter void-claw-rules.toml to the canonical project dir if absent.
+    // Write a starter zero-rules.toml to the canonical project dir if absent.
     // This is the file the server/proxy reads for policy enforcement.
-    let rules_path = canonical_path.join("void-claw-rules.toml");
+    let rules_path = canonical_path.join("zero-rules.toml");
     let created_rules = if !rules_path.exists() {
         std::fs::create_dir_all(canonical_path).with_context(|| {
             format!(
@@ -293,7 +293,7 @@ Rules of engagement:\n\
 - Read and follow this file before taking actions.\n\
 - Use `hostdo` only when the user explicitly asks for host activity.\n\
 - Use `killme` only when the user explicitly asks to end this container.\n\
-- Network access is filtered by void-claw; allowed destinations are in `[network]`.\n",
+- Network access is filtered by agent-zero; allowed destinations are in `[network]`.\n",
             _mount_target.display(),
             if direct_mount {
                 "- This project uses direct-mount sync; edits persist to the host."
@@ -316,21 +316,21 @@ Rules of engagement:\n\
 /// Return the CA bootstrap instructions used inside generated agent guidance.
 pub fn ca_setup_instructions(_ca_cert_pem: &str, ca_cert_path: &str) -> String {
     format!(
-        r#"── void-claw CA Certificate ────────────────────────────────────────
+        r#"── agent-zero CA Certificate ────────────────────────────────────────
 The proxy CA was generated.  Containers must trust it.
 
   Export path: {ca_cert_path}
 
   In your Dockerfile:
-    COPY void-claw-ca.crt /usr/local/share/ca-certificates/
+    COPY agent-zero-ca.crt /usr/local/share/ca-certificates/
     RUN update-ca-certificates          # Debian/Ubuntu
     # or: update-ca-trust               # RHEL/Fedora
 
   Runtime env vars (included in the docker run snippet):
     NODE_EXTRA_CA_CERTS, REQUESTS_CA_BUNDLE, SSL_CERT_FILE
 
-  Set VOID_CLAW_CA_CERT_PATH to the cert file location so the snippet works:
-    export VOID_CLAW_CA_CERT_PATH={ca_cert_path}
+  Set AGENT_ZERO_CA_CERT_PATH to the cert file location so the snippet works:
+    export AGENT_ZERO_CA_CERT_PATH={ca_cert_path}
 ────────────────────────────────────────────────────────────────────────────────
 "#,
         ca_cert_path = ca_cert_path,

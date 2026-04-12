@@ -9,9 +9,9 @@ use crate::config::{
     self, ConflictPolicy, DefaultsConfig, ProjectConfig, SymlinkPolicy, SyncMode, WorkspaceSection,
 };
 
-/// void-claw-rules.toml is always overwritten from canonical on seed and never
+/// zero-rules.toml is always overwritten from canonical on seed and never
 /// copied back to canonical on pushback.
-const PROTECTED_RULE_FILE: &str = "void-claw-rules.toml";
+const PROTECTED_RULE_FILE: &str = "zero-rules.toml";
 
 fn ensure_managed_workspace(proj: &ProjectConfig, defaults: &DefaultsConfig) -> Result<()> {
     let mode = config::effective_sync_mode(proj, defaults);
@@ -111,14 +111,14 @@ fn process_pushback_file(
     canonical_rules_path: &Path,
     report: &mut SyncReport,
 ) {
-    // Never push void-claw-rules.toml back to canonical; warn if it was modified.
+    // Never push zero-rules.toml back to canonical; warn if it was modified.
     if rel == Path::new(PROTECTED_RULE_FILE) {
         if src.exists() && canonical_rules_path.exists() {
             let ws_bytes = std::fs::read(src).unwrap_or_default();
             let canon_bytes = std::fs::read(canonical_rules_path).unwrap_or_default();
             if ws_bytes != canon_bytes {
                 report.warnings.push(
-                    "void-claw-rules.toml was modified in workspace — changes discarded (edit the canonical copy instead)".to_string()
+                    "zero-rules.toml was modified in workspace — changes discarded (edit the canonical copy instead)".to_string()
                 );
             }
         }
@@ -548,7 +548,7 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .expect("clock before epoch")
             .as_nanos();
-        let dir = std::env::temp_dir().join(format!("void-claw-sync-{prefix}-{nanos}"));
+        let dir = std::env::temp_dir().join(format!("agent-zero-sync-{prefix}-{nanos}"));
         fs::create_dir_all(&dir).expect("create temp dir");
         dir
     }

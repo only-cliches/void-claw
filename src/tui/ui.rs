@@ -480,16 +480,16 @@ fn render_project_settings(frame: &mut Frame, app: &App, area: Rect, project_idx
         )));
     }
 
-    let rules_path = proj.canonical_path.join("void-claw-rules.toml");
+    let rules_path = proj.canonical_path.join("zero-rules.toml");
     let rules_status: Vec<Span> = if !rules_path.exists() {
         vec![
-            Span::styled("  void-claw-rules.toml: ", Style::default().fg(tone(Color::DarkGray))),
+            Span::styled("  zero-rules.toml: ", Style::default().fg(tone(Color::DarkGray))),
             Span::styled("Not Found", Style::default().fg(tone(Color::Yellow))),
         ]
     } else {
         match crate::rules::load(&rules_path) {
             Ok(r) => vec![
-                Span::styled("  void-claw-rules.toml: ", Style::default().fg(tone(Color::DarkGray))),
+                Span::styled("  zero-rules.toml: ", Style::default().fg(tone(Color::DarkGray))),
                 Span::styled("Loaded", Style::default().fg(tone(Color::Green))),
                 Span::styled(
                     format!(
@@ -501,7 +501,7 @@ fn render_project_settings(frame: &mut Frame, app: &App, area: Rect, project_idx
                 ),
             ],
             Err(_) => vec![
-                Span::styled("  void-claw-rules.toml: ", Style::default().fg(tone(Color::DarkGray))),
+                Span::styled("  zero-rules.toml: ", Style::default().fg(tone(Color::DarkGray))),
                 Span::styled("Error", Style::default().fg(tone(Color::Red))),
             ],
         }
@@ -1160,7 +1160,7 @@ fn render_new_project(frame: &mut Frame, app: &App, area: Rect, dimmed: bool) {
             Style::default().fg(tone(Color::DarkGray)),
         )),
         Line::from(Span::styled(
-            "  Writes canonical/void-claw-rules.toml only if it does not exist.",
+            "  Writes canonical/zero-rules.toml only if it does not exist.",
             Style::default().fg(tone(Color::DarkGray)),
         )),
         Line::from(""),
@@ -1284,6 +1284,10 @@ fn render_container_picker(frame: &mut Frame, app: &mut App, area: Rect, dimmed:
         .unwrap_or("(no project)");
 
     let tone = |c| maybe_dim(c, dimmed);
+    let workspace_path = app
+        .selected_project_idx()
+        .and_then(|pi| cfg.projects.get(pi))
+        .map(|proj| crate::config::effective_workspace_path(proj, &cfg.workspace));
     let block = Block::default()
         .title(format!(" Launch Container for '{}' ", project_name))
         .title_style(
@@ -1297,7 +1301,39 @@ fn render_container_picker(frame: &mut Frame, app: &mut App, area: Rect, dimmed:
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
-    let mut lines: Vec<Line> = vec![Line::from("")];
+    let mut lines: Vec<Line> = vec![
+        Line::from(""),
+        Line::from(vec![
+            Span::styled(
+                "  Choose an agent to launch below. Your host dir ",
+                Style::default().fg(tone(Color::DarkGray)),
+            ),
+            Span::styled(
+                workspace_path
+                    .as_ref()
+                    .map(|path| path.display().to_string())
+                    .unwrap_or_else(|| "<workspace>".to_string()),
+                Style::default()
+                    .fg(tone(Color::Yellow))
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                " will be mounted inside the agent container at ",
+                Style::default().fg(tone(Color::DarkGray)),
+            ),
+            Span::styled(
+                "/workspace",
+                Style::default()
+                    .fg(tone(Color::Yellow))
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                ", and the agent will start automatically.",
+                Style::default().fg(tone(Color::DarkGray)),
+            ),
+        ]),
+        Line::from(""),
+    ];
 
     for (i, c) in cfg.containers.iter().enumerate() {
         let marker = if i == selected_ctr { "▶ " } else { "  " };
@@ -1354,7 +1390,7 @@ fn render_image_build(frame: &mut Frame, app: &mut App, area: Rect, dimmed: bool
     let dockerfile_root = docker_dir;
     let base_dockerfile = dockerfile_root.join(format!("{tag}.Dockerfile"));
     let agent_dockerfile = name
-        .strip_prefix("void-claw-")
+        .strip_prefix("agent-zero-")
         .map(|agent| {
             dockerfile_root
                 .join(agent)

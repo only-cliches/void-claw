@@ -13,7 +13,7 @@ pub struct Config {
     pub manager: ManagerConfig,
     pub workspace: WorkspaceSection,
     /// Directory containing the repository root used for Docker builds.
-    /// This is required at startup and is auto-populated by `void-claw --init`.
+    /// This is required at startup and is auto-populated by `agent-zero --init`.
     #[serde(default)]
     pub docker_dir: PathBuf,
     #[serde(default)]
@@ -51,7 +51,7 @@ impl Default for Config {
 
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
 pub struct ManagerConfig {
-    /// Path to the global void-claw-rules.toml where auto-approved commands are persisted.
+    /// Path to the global zero-rules.toml where auto-approved commands are persisted.
     /// Created on first use if it does not exist.
     #[serde(alias = "rules_file")]
     pub global_rules_file: PathBuf,
@@ -283,7 +283,7 @@ fn default_host() -> String {
     "127.0.0.1".to_string()
 }
 fn default_token_env() -> String {
-    "VOID_CLAW_TOKEN".to_string()
+    "AGENT_ZERO_TOKEN".to_string()
 }
 fn default_denied_executables() -> Vec<String> {
     [
@@ -314,7 +314,7 @@ pub struct ProxyDefaults {
     #[serde(default = "default_host")]
     pub proxy_host: String,
     /// When enabled, containers are launched with NET_ADMIN + root so they can:
-    ///   1) transparently redirect outbound HTTP/HTTPS through the void-claw proxy
+    ///   1) transparently redirect outbound HTTP/HTTPS through the agent-zero proxy
     ///   2) install strict outbound egress rules (iptables) to block direct egress
     ///      outside the proxy and exec bridge.
     ///
@@ -436,7 +436,7 @@ pub struct ContainerDef {
     #[serde(default)]
     pub env_passthrough: Vec<String>,
     /// Hostnames/domains to add to NO_PROXY for this container.
-    /// Use when specific endpoints must bypass the void-claw proxy.
+    /// Use when specific endpoints must bypass the agent-zero proxy.
     #[serde(default)]
     pub bypass_proxy: Vec<String>,
 }
@@ -581,7 +581,7 @@ impl Default for LoggingConfig {
 }
 
 fn default_log_dir() -> PathBuf {
-    PathBuf::from("~/.local/share/void-claw")
+    PathBuf::from("~/.local/share/agent-zero")
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -619,7 +619,7 @@ pub enum AuditExportLevel {
 // ── Rule loading ─────────────────────────────────────────────────────────────
 
 /// Load and compose rules for a specific project (global + that project's
-/// void-claw-rules.toml). Called at request time so edits take effect without
+/// zero-rules.toml). Called at request time so edits take effect without
 /// restart.
 pub fn load_composed_rules_for_project(
     config: &Config,
@@ -641,7 +641,7 @@ pub fn load_composed_rules_for_project(
     let mut proj_rules = Vec::new();
     if let Some(project_name) = project_name {
         if let Some(project) = config.projects.iter().find(|p| p.name == project_name) {
-            let path = project.canonical_path.join("void-claw-rules.toml");
+            let path = project.canonical_path.join("zero-rules.toml");
             match crate::rules::load(&path) {
                 Ok(rules) => proj_rules.push(rules),
                 Err(e) => {
@@ -1007,7 +1007,7 @@ pub fn effective_sync_mode(proj: &ProjectConfig, defaults: &DefaultsConfig) -> S
 pub fn combined_excludes(proj: &ProjectConfig, defaults: &DefaultsConfig) -> Result<Vec<String>> {
     let mut patterns = defaults.sync.global_exclude_patterns.clone();
     patterns.extend(proj.exclude_patterns.iter().cloned());
-    let rules_path = proj.canonical_path.join("void-claw-rules.toml");
+    let rules_path = proj.canonical_path.join("zero-rules.toml");
     let rules = crate::rules::load(&rules_path)
         .with_context(|| format!("loading project excludes from {}", rules_path.display()))?;
     patterns.extend(rules.exclude_patterns);
@@ -1047,8 +1047,8 @@ pub fn effective_command_aliases(
     {
         out.extend(project_aliases);
     }
-    // Layer on aliases from the project's void-claw-rules.toml (highest priority).
-    let rules_path = proj.canonical_path.join("void-claw-rules.toml");
+    // Layer on aliases from the project's zero-rules.toml (highest priority).
+    let rules_path = proj.canonical_path.join("zero-rules.toml");
     if let Ok(rules) = crate::rules::load(&rules_path) {
         if !rules.hostdo.command_aliases.is_empty() {
             out.extend(rules.hostdo.command_aliases);
@@ -1070,7 +1070,7 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .expect("system clock is before unix epoch")
             .as_nanos();
-        let dir = std::env::temp_dir().join(format!("void-claw-{prefix}-{nanos}"));
+        let dir = std::env::temp_dir().join(format!("agent-zero-{prefix}-{nanos}"));
         fs::create_dir_all(&dir).expect("create temp dir");
         dir
     }
@@ -1116,7 +1116,7 @@ canonical_path = "{}"
     #[test]
     fn load_applies_custom_sidebar_width() {
         let root = unique_temp_dir("sidebar-width-override");
-        let cfg_path = root.join("void-claw.toml");
+        let cfg_path = root.join("agent-zero.toml");
         let docker_dir = root.join("docker-root");
         fs::create_dir_all(&docker_dir).expect("create docker dir");
         let raw = format!(
@@ -1205,7 +1205,7 @@ default_policy = "deny"
         .expect("write global rules");
 
         fs::write(
-            project_path.join("void-claw-rules.toml"),
+            project_path.join("zero-rules.toml"),
             r#"
 [hostdo]
 default_policy = "prompt"
@@ -1227,7 +1227,7 @@ default_policy = "auto"
     #[test]
     fn load_fails_when_project_canonical_path_is_missing() {
         let root = unique_temp_dir("missing-canonical-path");
-        let cfg_path = root.join("void-claw.toml");
+        let cfg_path = root.join("agent-zero.toml");
         let docker_dir = root.join("docker-root");
         fs::create_dir_all(&docker_dir).expect("create docker dir");
         let raw = format!(
@@ -1260,7 +1260,7 @@ canonical_path = "{}"
     #[test]
     fn load_fails_when_docker_dir_is_missing() {
         let root = unique_temp_dir("missing-docker-dir");
-        let cfg_path = root.join("void-claw.toml");
+        let cfg_path = root.join("agent-zero.toml");
         let raw = format!(
             r#"
 [manager]
@@ -1287,7 +1287,7 @@ root = "{}"
     #[test]
     fn load_accepts_when_docker_dir_does_not_exist() {
         let root = unique_temp_dir("missing-docker-dir-path");
-        let cfg_path = root.join("void-claw.toml");
+        let cfg_path = root.join("agent-zero.toml");
         let docker_dir = root.join("docker-root");
         let raw = format!(
             r#"
@@ -1311,7 +1311,7 @@ root = "{}"
     #[test]
     fn load_fails_when_docker_dir_is_a_file() {
         let root = unique_temp_dir("docker-dir-file");
-        let cfg_path = root.join("void-claw.toml");
+        let cfg_path = root.join("agent-zero.toml");
         let docker_dir = root.join("docker-root");
         fs::write(&docker_dir, "not a directory").expect("write docker file");
         let raw = format!(
@@ -1339,7 +1339,7 @@ root = "{}"
     #[test]
     fn load_accepts_config_with_no_projects() {
         let root = unique_temp_dir("no-projects");
-        let cfg_path = root.join("void-claw.toml");
+        let cfg_path = root.join("agent-zero.toml");
         let docker_dir = root.join("docker-root");
         fs::create_dir_all(&docker_dir).expect("create docker dir");
         let raw = format!(
@@ -1364,7 +1364,7 @@ root = "{}"
     #[test]
     fn load_fails_when_direct_mode_has_disposable_true() {
         let root = unique_temp_dir("direct-disposable");
-        let cfg_path = root.join("void-claw.toml");
+        let cfg_path = root.join("agent-zero.toml");
         let docker_dir = root.join("docker-root");
         let project_path = root.join("project-a");
         fs::create_dir_all(&docker_dir).expect("create docker dir");
@@ -1401,7 +1401,7 @@ mode = "direct"
     #[test]
     fn load_fails_when_direct_mode_has_explicit_workspace_path() {
         let root = unique_temp_dir("direct-workspace-path");
-        let cfg_path = root.join("void-claw.toml");
+        let cfg_path = root.join("agent-zero.toml");
         let docker_dir = root.join("docker-root");
         let project_path = root.join("project-a");
         fs::create_dir_all(&docker_dir).expect("create docker dir");
@@ -1443,7 +1443,7 @@ mode = "direct"
         let project_path = root.join("project-c");
         fs::create_dir_all(&project_path).expect("create project path");
         fs::write(
-            project_path.join("void-claw-rules.toml"),
+            project_path.join("zero-rules.toml"),
             r#"
 exclude_patterns = ["node_modules", "dist/**"]
 "#,

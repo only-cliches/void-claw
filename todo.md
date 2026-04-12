@@ -1,4 +1,4 @@
-# Void Claw Roadmap & TODO
+# Agent Zero Roadmap & TODO
 
 ## New Features
 
@@ -11,7 +11,7 @@ Harden the manager/TUI against containers flooding `hostdo` or network approval 
 * Enforce caps before enqueueing into TUI pending lists to prevent unbounded growth.
 
 **Proposed Config:**
-* Add a `[flood]` (or `[security.flood]`) section to `void-claw.toml`.
+* Add a `[flood]` (or `[security.flood]`) section to `agent-zero.toml`.
 * Separate knobs for `hostdo` vs `network` (different legitimate volumes).
 * Threshold ideas:
   * `max_pending_exec`, `max_pending_net` (TUI-visible backlog limits)
@@ -26,15 +26,15 @@ Harden the manager/TUI against containers flooding `hostdo` or network approval 
 * Consider per-session host-side exec concurrency limits so even approved/auto flows can’t spawn unlimited processes.
 
 ### [ ] Agent-to-Agent Spawning (Orchestration)
-Enable an agent running inside a Void Claw container to programmatically spawn additional agents to perform sub-tasks.
+Enable an agent running inside an Agent Zero container to programmatically spawn additional agents to perform sub-tasks.
 
 **Core Concept:**
-A new container-side utility (e.g., `spawn-agent`) that communicates with the Void Claw manager to launch new containers.
+A new container-side utility (e.g., `spawn-agent`) that communicates with the Agent Zero manager to launch new containers.
 
 **Technical Requirements:**
 *   **Bridge Implementation**: Create a `spawn-agent` script (similar to `hostdo`) that sends a launch request to the manager's server.
 *   **Security & Permissions**:
-    *   Add a `[spawning]` section to `void-claw-rules.toml` to permit/deny this action.
+    *   Add a `[spawning]` section to `zero-rules.toml` to permit/deny this action.
     *   Implement "fork bomb" protection (max nesting depth, max concurrent sub-agents).
 *   **Workspace Management**:
     *   Support launching into the `current` workspace (requires handling file concurrency).

@@ -524,11 +524,11 @@ impl App {
     }
 
     fn log_project_rules_status(&mut self, project: &crate::config::ProjectConfig) {
-        let rules_path = project.canonical_path.join("void-claw-rules.toml");
+        let rules_path = project.canonical_path.join("zero-rules.toml");
         if !rules_path.exists() {
             self.push_log(
                 format!(
-                    "Searched for rules at {} but void-claw-rules.toml was not found",
+                    "Searched for rules at {} but zero-rules.toml was not found",
                     rules_path.display()
                 ),
                 false,
@@ -960,12 +960,12 @@ impl App {
             Ok(true) => self.push_log(
                 format!(
                     "created {}",
-                    canonical_path.join("void-claw-rules.toml").display()
+                    canonical_path.join("zero-rules.toml").display()
                 ),
                 false,
             ),
             Err(e) => {
-                self.set_new_project_error(format!("failed writing void-claw-rules.toml: {e}"));
+                self.set_new_project_error(format!("failed writing zero-rules.toml: {e}"));
                 return;
             }
         };
@@ -1038,7 +1038,7 @@ impl App {
             return vec![SettingsActionRow {
                 key: 'r',
                 label: "Reload rules".to_string(),
-                desc: "Rescan and reload void-claw-rules.toml for this project.",
+                desc: "Rescan and reload zero-rules.toml for this project.",
                 action: SettingsAction::ReloadRules,
             }];
         }
@@ -1073,7 +1073,7 @@ impl App {
             SettingsActionRow {
                 key: 'r',
                 label: "Reload rules".to_string(),
-                desc: "Rescan and reload void-claw-rules.toml for this project.",
+                desc: "Rescan and reload zero-rules.toml for this project.",
                 action: SettingsAction::ReloadRules,
             },
             SettingsActionRow {
@@ -1579,7 +1579,7 @@ impl App {
             docker_dir.display().to_string(),
         ];
 
-        let agent_cmd = name.strip_prefix("void-claw-").map(|agent| {
+        let agent_cmd = name.strip_prefix("agent-zero-").map(|agent| {
             base_cmd[2] = format!("my-agent:{tag}");
             vec![
                 "build".to_string(),
@@ -1954,7 +1954,7 @@ impl App {
         ) {
             Ok(true) => self.push_log(
                 format!(
-                    "created starter void-claw-rules.toml in '{}'",
+                    "created starter zero-rules.toml in '{}'",
                     proj.canonical_path.display()
                 ),
                 false,
@@ -2027,7 +2027,7 @@ impl App {
         #[cfg(target_os = "macos")]
         if cfg.defaults.proxy.strict_network {
             self.push_log(
-                "strict_network on macOS requires Docker `--privileged`; void-claw applies it automatically for this container launch",
+                "strict_network on macOS requires Docker `--privileged`; agent-zero applies it automatically for this container launch",
                 false,
             );
         }
@@ -2372,7 +2372,7 @@ impl App {
         cfg.projects
             .iter()
             .find(|p| p.name == project_name)
-            .map(|p| p.canonical_path.join("void-claw-rules.toml"))
+            .map(|p| p.canonical_path.join("zero-rules.toml"))
     }
 
     fn sync_rules_to_workspace(&mut self, project_name: &str) {
@@ -3150,7 +3150,7 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .expect("system clock is before unix epoch")
             .as_nanos();
-        let dir = std::env::temp_dir().join(format!("void-claw-{prefix}-{nanos}"));
+        let dir = std::env::temp_dir().join(format!("agent-zero-{prefix}-{nanos}"));
         std::fs::create_dir_all(&dir).expect("create temp dir");
         dir
     }
@@ -3223,9 +3223,9 @@ image = "missing-image:latest"
 
 #[test]
     fn build_commands_use_configured_docker_root() {
-        let docker_dir = std::path::Path::new("/tmp/void-claw-docker-root");
+        let docker_dir = std::path::Path::new("/tmp/agent-zero-docker-root");
         let (base_cmd, agent_cmd) =
-            App::build_commands_for(docker_dir, "void-claw-codex:ubuntu-24.04");
+            App::build_commands_for(docker_dir, "agent-zero-codex:ubuntu-24.04");
 
         assert_eq!(
             base_cmd,
@@ -3234,8 +3234,8 @@ image = "missing-image:latest"
                 "-t".to_string(),
                 "my-agent:ubuntu-24.04".to_string(),
                 "-f".to_string(),
-                "/tmp/void-claw-docker-root/ubuntu-24.04.Dockerfile".to_string(),
-                "/tmp/void-claw-docker-root".to_string(),
+                "/tmp/agent-zero-docker-root/ubuntu-24.04.Dockerfile".to_string(),
+                "/tmp/agent-zero-docker-root".to_string(),
             ]
         );
         assert_eq!(
@@ -3243,10 +3243,10 @@ image = "missing-image:latest"
             Some(vec![
                 "build".to_string(),
                 "-t".to_string(),
-                "void-claw-codex:ubuntu-24.04".to_string(),
+                "agent-zero-codex:ubuntu-24.04".to_string(),
                 "-f".to_string(),
-                "/tmp/void-claw-docker-root/codex/ubuntu-24.04.Dockerfile".to_string(),
-                "/tmp/void-claw-docker-root".to_string(),
+                "/tmp/agent-zero-docker-root/codex/ubuntu-24.04.Dockerfile".to_string(),
+                "/tmp/agent-zero-docker-root".to_string(),
             ])
         );
     }

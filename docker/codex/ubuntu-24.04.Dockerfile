@@ -1,7 +1,7 @@
-# void-claw + OpenAI Codex CLI — Ubuntu 24.04 LTS
+# agent-zero + OpenAI Codex CLI — Ubuntu 24.04 LTS
 #
 # Build (from repo root — must have already built the base image):
-#   docker build -t void-claw-codex:ubuntu-24.04 -f docker/codex/ubuntu-24.04.Dockerfile .
+#   docker build -t agent-zero-codex:ubuntu-24.04 -f docker/codex/ubuntu-24.04.Dockerfile .
 
 FROM my-agent:ubuntu-24.04
 
