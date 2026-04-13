@@ -24,7 +24,9 @@ AI coding agents are powerful, and by default, completely unconstrained. Give on
 
 ### Prerequisites
 
-Agent Zero requires **Docker** to be installed and available in your system's `PATH`.
+Agent Zero requires
+1. [Docker](https://www.docker.com/get-started/) to be installed and available in your system's `PATH`
+2. The [Rust programming language](https://rust-lang.org/tools/install/) to be insatlled.
 
 ### Install
 
