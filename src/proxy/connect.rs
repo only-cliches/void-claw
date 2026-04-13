@@ -143,7 +143,7 @@ pub(crate) async fn handle_connect(mut stream: TcpStream, state: ProxyState) -> 
         Ok(rules) => rules,
         Err(e) => {
             warn!("proxy rules load error: {e}");
-            write_error_any(&mut stream, 500, "Invalid zero-rules.toml configuration").await?;
+            write_error_any(&mut stream, 500, "Invalid void-rules.toml configuration").await?;
             return Ok(());
         }
     };
@@ -166,7 +166,7 @@ pub(crate) async fn handle_connect(mut stream: TcpStream, state: ProxyState) -> 
         }
     };
     if !preflight_allowed {
-        write_error_any(&mut stream, 403, "Forbidden by agent-zero policy").await?;
+        write_error_any(&mut stream, 403, "Forbidden by void-claw policy").await?;
         return Ok(());
     }
 
@@ -269,7 +269,7 @@ pub(crate) async fn handle_connect(mut stream: TcpStream, state: ProxyState) -> 
     };
 
     if !allowed {
-        write_error_any(&mut tls_stream, 403, "Forbidden by agent-zero policy").await?;
+        write_error_any(&mut tls_stream, 403, "Forbidden by void-claw policy").await?;
         return Ok(());
     }
 

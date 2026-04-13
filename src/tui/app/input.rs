@@ -408,12 +408,12 @@ impl App {
             Ok(true) => self.push_log(
                 format!(
                     "created {}",
-                    canonical_path.join("zero-rules.toml").display()
+                    canonical_path.join("void-rules.toml").display()
                 ),
                 false,
             ),
             Err(e) => {
-                self.set_new_project_error(format!("failed writing zero-rules.toml: {e}"));
+                self.set_new_project_error(format!("failed writing void-rules.toml: {e}"));
                 return;
             }
         };

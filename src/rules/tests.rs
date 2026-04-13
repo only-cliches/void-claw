@@ -108,9 +108,9 @@ policy = "allow"
             .duration_since(UNIX_EPOCH)
             .expect("clock before epoch")
             .as_nanos();
-        let dir = std::env::temp_dir().join(format!("agent-zero-rules-test-{nonce}"));
+        let dir = std::env::temp_dir().join(format!("void-claw-rules-test-{nonce}"));
         std::fs::create_dir_all(&dir).expect("create temp dir");
-        let path = dir.join("zero-rules.toml");
+        let path = dir.join("void-rules.toml");
         let argv = vec!["cargo".to_string(), "test".to_string()];
 
         append_auto_approval(&path, &argv, "$WORKSPACE").expect("first append");
@@ -130,14 +130,14 @@ policy = "allow"
             .duration_since(UNIX_EPOCH)
             .expect("clock before epoch")
             .as_nanos();
-        let dir = std::env::temp_dir().join(format!("agent-zero-rules-header-{nonce}"));
+        let dir = std::env::temp_dir().join(format!("void-claw-rules-header-{nonce}"));
         std::fs::create_dir_all(&dir).expect("create temp dir");
-        let path = dir.join("zero-rules.toml");
+        let path = dir.join("void-rules.toml");
 
         write_rules_file(&path, &ProjectRules::default(), false).expect("write");
         let s = std::fs::read_to_string(&path).expect("read");
         assert!(
-            s.starts_with("# zero-rules.toml — policy"),
+            s.starts_with("# void-rules.toml — policy"),
             "missing header prefix"
         );
         assert!(
@@ -155,15 +155,15 @@ policy = "allow"
             .duration_since(UNIX_EPOCH)
             .expect("clock before epoch")
             .as_nanos();
-        let dir = std::env::temp_dir().join(format!("agent-zero-rules-header-append-{nonce}"));
+        let dir = std::env::temp_dir().join(format!("void-claw-rules-header-append-{nonce}"));
         std::fs::create_dir_all(&dir).expect("create temp dir");
-        let path = dir.join("zero-rules.toml");
+        let path = dir.join("void-rules.toml");
 
         append_auto_approval(&path, &["echo".to_string(), "hi".to_string()], "/tmp")
             .expect("append");
         let s = std::fs::read_to_string(&path).expect("read");
         assert!(
-            s.starts_with("# zero-rules.toml — policy"),
+            s.starts_with("# void-rules.toml — policy"),
             "missing header after append"
         );
 

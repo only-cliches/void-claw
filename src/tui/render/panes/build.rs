@@ -118,7 +118,7 @@ pub(crate) fn render_image_build(frame: &mut Frame, app: &mut App, area: Rect, d
     let tag = parts.get(1).copied().unwrap_or("ubuntu-24.04");
     let dockerfile_root = docker_dir;
     let base_dockerfile = dockerfile_root.join(format!("{tag}.Dockerfile"));
-    let agent_dockerfile = name.strip_prefix("agent-zero-").map(|agent| {
+    let agent_dockerfile = name.strip_prefix("void-claw-").map(|agent| {
         dockerfile_root
             .join(agent)
             .join(format!("{tag}.Dockerfile"))

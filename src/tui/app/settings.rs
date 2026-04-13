@@ -27,7 +27,7 @@ impl App {
             return vec![SettingsActionRow {
                 key: 'r',
                 label: "Reload rules".to_string(),
-                desc: "Rescan and reload zero-rules.toml for this project.",
+                desc: "Rescan and reload void-rules.toml for this project.",
                 action: SettingsAction::ReloadRules,
             }];
         }
@@ -62,7 +62,7 @@ impl App {
             SettingsActionRow {
                 key: 'r',
                 label: "Reload rules".to_string(),
-                desc: "Rescan and reload zero-rules.toml for this project.",
+                desc: "Rescan and reload void-rules.toml for this project.",
                 action: SettingsAction::ReloadRules,
             },
             SettingsActionRow {

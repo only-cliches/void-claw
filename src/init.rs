@@ -5,10 +5,10 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use tracing::instrument;
 
-const SAMPLE_CONFIG: &str = include_str!("../agent-zero.example.toml");
-const DOCKER_DIR_PLACEHOLDER: &str = "__AGENT_ZERO_DOCKER_DIR__";
+const SAMPLE_CONFIG: &str = include_str!("../void-claw.example.toml");
+const DOCKER_DIR_PLACEHOLDER: &str = "__VOID_CLAW_DOCKER_DIR__";
 const GITHUB_DOCKER_BASE_URL: &str =
-    "https://raw.githubusercontent.com/only-cliches/agent-zero/refs/heads/main/docker";
+    "https://raw.githubusercontent.com/only-cliches/void-claw/refs/heads/main/docker";
 const BUILTIN_DOCKERFILES: &[&str] = &[
     "ubuntu-24.04.Dockerfile",
     "claude/ubuntu-24.04.Dockerfile",
@@ -36,7 +36,7 @@ pub fn write_sample_config(output: &Path) -> Result<()> {
     let cwd = std::env::current_dir()?;
     let home_config_root = dirs::home_dir()
         .context("could not determine home directory")?
-        .join(".config/agent-zero");
+        .join(".config/void-claw");
     let docker_dir = resolve_init_docker_dir(&cwd, &home_config_root);
     fs::create_dir_all(&docker_dir)?;
     let docker_dir_literal = toml::Value::String(docker_dir.display().to_string()).to_string();
@@ -64,7 +64,7 @@ pub fn ensure_docker_assets(docker_dir: &Path) -> Result<()> {
     }
 
     println!(
-        "agent-zero: the docker assets in {} are incomplete",
+        "void-claw: the docker assets in {} are incomplete",
         docker_dir.display()
     );
     if !missing_dockerfiles.is_empty() {
@@ -183,9 +183,10 @@ mod tests {
 
     #[test]
     fn sample_config_writes_parseable_docker_dir() {
-        let root = std::env::temp_dir().join(format!("agent-zero-init-{}", uuid::Uuid::new_v4()));
+        let root = std::env::temp_dir()
+            .join(format!("void-claw-init-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&root).expect("create temp dir");
-        let output = root.join("agent-zero.toml");
+        let output = root.join("void-claw.toml");
         let cwd = std::env::current_dir().expect("current dir");
         let sample = write_sample_config(&output);
         sample.expect("write sample config");
@@ -198,9 +199,9 @@ mod tests {
     #[test]
     fn resolve_init_docker_dir_prefers_local_docker_folder() {
         let root =
-            std::env::temp_dir().join(format!("agent-zero-init-local-{}", uuid::Uuid::new_v4()));
+            std::env::temp_dir().join(format!("void-claw-init-local-{}", uuid::Uuid::new_v4()));
         let cwd = root.join("cwd");
-        let home = root.join("home/.config/agent-zero");
+        let home = root.join("home/.config/void-claw");
         std::fs::create_dir_all(cwd.join("docker")).expect("create local docker dir");
         let selected = resolve_init_docker_dir(&cwd, &home);
         assert_eq!(selected, cwd.join("docker"));
@@ -209,9 +210,9 @@ mod tests {
     #[test]
     fn resolve_init_docker_dir_falls_back_to_home_config_root() {
         let root =
-            std::env::temp_dir().join(format!("agent-zero-init-home-{}", uuid::Uuid::new_v4()));
+            std::env::temp_dir().join(format!("void-claw-init-home-{}", uuid::Uuid::new_v4()));
         let cwd = root.join("cwd");
-        let home = root.join("home/.config/agent-zero");
+        let home = root.join("home/.config/void-claw");
         std::fs::create_dir_all(&cwd).expect("create cwd");
         let selected = resolve_init_docker_dir(&cwd, &home);
         assert_eq!(selected, home.join("docker"));
@@ -229,7 +230,8 @@ mod tests {
 
     #[test]
     fn ensure_docker_assets_is_a_noop_when_complete() {
-        let root = std::env::temp_dir().join(format!("agent-zero-docker-{}", uuid::Uuid::new_v4()));
+        let root =
+            std::env::temp_dir().join(format!("void-claw-docker-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(root.join("scripts")).expect("create scripts dir");
         for path in builtin_dockerfile_paths() {
             let file = root.join(path);

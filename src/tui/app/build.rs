@@ -91,7 +91,7 @@ impl App {
             docker_dir.display().to_string(),
         ];
 
-        let agent_cmd = name.strip_prefix("agent-zero-").map(|agent| {
+        let agent_cmd = name.strip_prefix("void-claw-").map(|agent| {
             base_cmd[2] = format!("my-agent:{tag}");
             vec![
                 "build".to_string(),

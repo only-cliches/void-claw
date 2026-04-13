@@ -48,7 +48,7 @@ pub fn spawn(
     rows: u16,
     cols: u16,
 ) -> Result<(ContainerSession, Vec<String>)> {
-    let ca_env_path = "/usr/local/share/ca-certificates/agent-zero-ca.crt";
+    let ca_env_path = "/usr/local/share/ca-certificates/void-claw-ca.crt";
     let no_proxy = if strict_network {
         compose_no_proxy(&[])
     } else {
@@ -56,9 +56,10 @@ pub fn spawn(
     };
     let mount_str = ctr.mount_target.display().to_string();
 
-    let cidfile = std::env::temp_dir().join(format!("agent-zero-cid-{}.txt", uuid::Uuid::new_v4()));
+    let cidfile =
+        std::env::temp_dir().join(format!("void-claw-cid-{}.txt", uuid::Uuid::new_v4()));
     let docker_run_name = format!(
-        "agent-zero-{}-{}",
+        "void-claw-{}-{}",
         sanitize_docker_name(&ctr.name),
         uuid::Uuid::new_v4().simple()
     );
@@ -126,7 +127,7 @@ pub fn spawn(
 
     // Prepare secure env file to prevent token leakage via `ps`
     let mut env_file = tempfile::Builder::new()
-        .prefix("agent-zero-env-")
+        .prefix("void-claw-env-")
         .tempfile()
         .context("failed to create temp env file")?;
 
@@ -144,19 +145,19 @@ pub fn spawn(
         writeln!(env_file, "{var}={ca_env_path}")?;
     }
 
-    writeln!(env_file, "AGENT_ZERO_TOKEN={token}")?;
-    writeln!(env_file, "AGENT_ZERO_SESSION_TOKEN={session_token}")?;
-    writeln!(env_file, "AGENT_ZERO_PROJECT={project_name}")?;
-    writeln!(env_file, "AGENT_ZERO_MOUNT_TARGET={mount_str}")?;
-    writeln!(env_file, "AGENT_ZERO_URL={container_exec_url}")?;
+    writeln!(env_file, "VOID_CLAW_TOKEN={token}")?;
+    writeln!(env_file, "VOID_CLAW_SESSION_TOKEN={session_token}")?;
+    writeln!(env_file, "VOID_CLAW_PROJECT={project_name}")?;
+    writeln!(env_file, "VOID_CLAW_MOUNT_TARGET={mount_str}")?;
+    writeln!(env_file, "VOID_CLAW_URL={container_exec_url}")?;
     writeln!(
         env_file,
-        "AGENT_ZERO_STRICT_NETWORK={}",
+        "VOID_CLAW_STRICT_NETWORK={}",
         if strict_network { "1" } else { "0" }
     )?;
     writeln!(
         env_file,
-        "AGENT_ZERO_SCOPED_PROXY_ADDR={container_proxy_addr}"
+        "VOID_CLAW_SCOPED_PROXY_ADDR={container_proxy_addr}"
     )?;
 
     if !strict_network {
@@ -317,7 +318,7 @@ pub fn spawn(
 
                 let staging_path = "/tmp/.zc-claude-credentials.json";
                 tempfile::Builder::new()
-                    .prefix("agent-zero-claude-cred-")
+                    .prefix("void-claw-claude-cred-")
                     .suffix(".json")
                     .tempfile()
                     .ok()

@@ -1,23 +1,23 @@
-# agent-zero.example.toml
+# void-claw.example.toml
 #
-# Main manager config for agent-zero.
+# Main manager config for void-claw.
 # Per-project command rules, network policy, and agent instructions live in the
-# project's own zero-rules.toml file, not here.
+# project's own void-rules.toml file, not here.
 
 # Directory used to resolve Dockerfiles and the Docker build context.
 # The init flow uses `./docker` when it exists, otherwise it falls back to
-# `~/.config/agent-zero/docker`.
-docker_dir = __AGENT_ZERO_DOCKER_DIR__
+# `~/.config/void-claw/docker`.
+docker_dir = __VOID_CLAW_DOCKER_DIR__
 
 [manager]
 # Global rules file used by the manager for persisted approvals.
 # Use the canonical key below. `rules_file` still parses as an alias, but
 # `global_rules_file` is the clearer name to document.
-global_rules_file = "~/.config/agent-zero/rules.toml"
+global_rules_file = "~/.config/void-claw/void-rules.toml"
 
 [workspace]
 # Root directory for managed workspace copies.
-# When a project does not set `workspace_path`, agent-zero uses:
+# When a project does not set `workspace_path`, void-claw uses:
 #   <workspace.root>/<project.name>
 root = "~/agent_workspace"
 
@@ -55,7 +55,7 @@ conflict_policy = "preserve_canonical"
 # Global exclude patterns for workspace population.
 # These are layered with:
 # - [[projects]].exclude_patterns
-# - exclude_patterns in the project's zero-rules.toml
+# - exclude_patterns in the project's void-rules.toml
 global_exclude_patterns = [
   ".*",
   ".git",
@@ -93,7 +93,7 @@ server_port = 7878
 server_host = "0.0.0.0"
 
 # Env var name that carries the shared auth token for the exec bridge.
-token_env_var = "AGENT_ZERO_TOKEN"
+token_env_var = "VOID_CLAW_TOKEN"
 
 # Executables that are always denied.
 # These are common shell escape or privilege escalation paths.
@@ -134,11 +134,11 @@ strict_network = true
 [logging]
 # Directory for runtime state and logs.
 # This file stores:
-# - `agent-zero.log` (daily rotating text logs)
+# - `void-claw.log` (daily rotating text logs)
 # - runtime state used by the manager and proxy
-log_dir = "~/.local/share/agent-zero"
+log_dir = "~/.local/share/void-claw"
 
-# Stable instance id written by agent-zero on first startup.
+# Stable instance id written by void-claw on first startup.
 # This is exported as `service.instance.id` in OpenTelemetry.
 # instance_id = "generated-on-first-run"
 
@@ -170,7 +170,7 @@ log_dir = "~/.local/share/agent-zero"
 
 # ---------------------------------------------------------------------------
 # Named environment profiles.
-# These are referenced by hostdo command rules in zero-rules.toml via
+# These are referenced by hostdo command rules in void-rules.toml via
 # `env_profile`.
 # ---------------------------------------------------------------------------
 
@@ -183,7 +183,7 @@ vars = { NODE_ENV = "development" }
 
 # ---------------------------------------------------------------------------
 # Managed projects are optional.
-# Add one [[projects]] block per canonical repository when you want Agent Zero
+# Add one [[projects]] block per canonical repository when you want Void Claw
 # to manage a workspace. The CLI can still launch without any projects defined.
 # Project-specific hostdo overrides, sync overrides, and exclude patterns belong
 # inside each [[projects]] block when you add one later.
@@ -196,7 +196,7 @@ vars = { NODE_ENV = "development" }
 
 [defaults.containers]
 # Optional default mount point inside the container.
-# If omitted, agent-zero uses /workspace.
+# If omitted, void-claw uses /workspace.
 # mount_target = "/workspace"
 
 # Optional default agent type for profiles that do not set one.
@@ -226,12 +226,12 @@ env_passthrough = ["TERM", "COLORTERM", "COLORFGBG"]
 # ---------------------------------------------------------------------------
 
 [container_profiles.claude]
-image = "agent-zero-claude:ubuntu-24.04"
+image = "void-claw-claude:ubuntu-24.04"
 
 # Optional override for this profile's mount point.
 # mount_target = "/workspace"
 
-# Controls which agent bootstrap files agent-zero writes into the workspace.
+# Controls which agent bootstrap files void-claw writes into the workspace.
 # One of: none, claude, codex, opencode
 agent = "claude"
 
@@ -259,7 +259,7 @@ container = "/home/ubuntu/.claude"
 mode = "rw"
 
 [container_profiles.codex]
-image = "agent-zero-codex:ubuntu-24.04"
+image = "void-claw-codex:ubuntu-24.04"
 agent = "codex"
 
 # Optional profile-specific env passthrough.
@@ -284,7 +284,7 @@ container = "/home/ubuntu/.config/codex"
 mode = "rw"
 
 [container_profiles.gemini]
-image = "agent-zero-gemini:ubuntu-24.04"
+image = "void-claw-gemini:ubuntu-24.04"
 agent = "gemini"
 
 # Optional profile-specific env passthrough.
@@ -306,7 +306,7 @@ container = "/home/ubuntu/.gemini"
 mode = "rw"
 
 [container_profiles.opencode]
-image = "agent-zero-opencode:ubuntu-24.04"
+image = "void-claw-opencode:ubuntu-24.04"
 agent = "opencode"
 
 # Optional profile-specific env passthrough.

@@ -1,19 +1,19 @@
 [package]
-name = "agent-zero"
+name = "void-claw"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.85"
-description = "Zero-trust sandbox for AI coding agents"
+description = "Zero-trust container manager for AI coding agents"
 license = "MIT"
 readme = "README.md"
-repository = "https://github.com/only-cliches/agent-zero"
-homepage = "https://github.com/only-cliches/agent-zero"
+repository = "https://github.com/only-cliches/void-claw"
+homepage = "https://github.com/only-cliches/void-claw"
 keywords = ["ai", "agents", "sandbox", "docker", "terminal"]
 categories = ["command-line-utilities", "development-tools"]
 exclude = ["target/", ".git/", ".github/"]
 
 [[bin]]
-name = "agent-zero"
+name = "void-claw"
 path = "src/main.rs"
 
 [dependencies]

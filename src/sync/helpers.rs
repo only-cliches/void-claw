@@ -132,7 +132,7 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .expect("clock before epoch")
             .as_nanos();
-        let dir = std::env::temp_dir().join(format!("agent-zero-sync-{prefix}-{nanos}"));
+        let dir = std::env::temp_dir().join(format!("void-claw-sync-{prefix}-{nanos}"));
         fs::create_dir_all(&dir).expect("create temp dir");
         dir
     }

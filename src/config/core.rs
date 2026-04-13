@@ -14,7 +14,7 @@ pub struct Config {
     pub manager: ManagerConfig,
     pub workspace: WorkspaceSection,
     /// Directory containing the repository root used for Docker builds.
-    /// This is required at startup and is auto-populated by `agent-zero --init`.
+    /// This is required at startup and is auto-populated by `void-claw --init`.
     #[serde(default)]
     pub docker_dir: PathBuf,
     #[serde(default)]
@@ -38,6 +38,8 @@ impl Default for Config {
         Self {
             manager: ManagerConfig::default(),
             workspace: WorkspaceSection::default(),
+            // `docker_dir` is expected to be populated during the `void-claw --init` process.
+            // An empty PathBuf here signifies an uninitialized state.
             docker_dir: PathBuf::new(),
             defaults: DefaultsConfig::default(),
             agents: AgentsConfig::default(),
@@ -52,7 +54,7 @@ impl Default for Config {
 
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
 pub struct ManagerConfig {
-    /// Path to the global zero-rules.toml where auto-approved commands are persisted.
+    /// Path to the global void-rules.toml where auto-approved commands are persisted.
     /// Created on first use if it does not exist.
     #[serde(alias = "rules_file")]
     pub global_rules_file: PathBuf,
@@ -135,6 +137,8 @@ impl Default for SyncDefaults {
     }
 }
 
+/// Defines common files/directories to exclude from workspace synchronization.
+/// These are typically sensitive files or build artifacts.
 fn default_exclude_patterns() -> Vec<String> {
     [
         ".*",
@@ -180,6 +184,7 @@ impl Default for WorkspaceDefaults {
     }
 }
 
+/// Helper function for `serde(default = "bool_true")` to set a boolean field to true by default.
 pub(crate) fn bool_true() -> bool {
     true
 }
@@ -190,6 +195,7 @@ pub struct UiDefaults {
     pub sidebar_width: u16,
 }
 
+/// Provides the default value for `UiDefaults.sidebar_width`.
 fn default_sidebar_width() -> u16 {
     32
 }
@@ -266,8 +272,10 @@ pub struct HostdoDefaults {
     pub server_host: String,
     #[serde(default = "default_token_env")]
     pub token_env_var: String,
+    /// List of exact executable names that are always denied, regardless of other rules.
     #[serde(default = "default_denied_executables")]
     pub denied_executables: Vec<String>,
+    /// List of argument fragments (substrings) that, if present in any command's argv, will cause the command to be denied.
     #[serde(default)]
     pub denied_argument_fragments: Vec<String>,
     /// Optional command aliases expanded server-side for hostdo.
@@ -277,15 +285,19 @@ pub struct HostdoDefaults {
     pub command_aliases: HashMap<String, AliasValue>,
 }
 
+/// Provides the default value for `HostdoDefaults.server_port`.
 fn default_exec_port() -> u16 {
     7878
 }
+/// Provides the default value for `HostdoDefaults.server_host`.
 fn default_host() -> String {
     "127.0.0.1".to_string()
 }
+/// Provides the default value for `HostdoDefaults.token_env_var`.
 fn default_token_env() -> String {
-    "AGENT_ZERO_TOKEN".to_string()
+    "VOID_CLAW_TOKEN".to_string()
 }
+/// Provides the default value for `HostdoDefaults.denied_executables`.
 fn default_denied_executables() -> Vec<String> {
     [
         "sh", "bash", "zsh", "fish", "csh", "ksh", "sudo", "su", "doas",
@@ -315,7 +327,7 @@ pub struct ProxyDefaults {
     #[serde(default = "default_host")]
     pub proxy_host: String,
     /// When enabled, containers are launched with NET_ADMIN + root so they can:
-    ///   1) transparently redirect outbound HTTP/HTTPS through the agent-zero proxy
+    ///   1) transparently redirect outbound HTTP/HTTPS through the void-claw proxy
     ///   2) install strict outbound egress rules (iptables) to block direct egress
     ///      outside the proxy and exec bridge.
     ///
@@ -325,6 +337,7 @@ pub struct ProxyDefaults {
     pub strict_network: bool,
 }
 
+/// Provides the default value for `ProxyDefaults.proxy_port`.
 fn default_proxy_port() -> u16 {
     8081
 }

@@ -47,7 +47,7 @@ async function main() {
 
   const lines = [];
   
-  lines.push("# Agent Zero Source Code");
+  lines.push("# Void Claw Source Code");
 
   if (allFiles.length === 0) {
     lines.push("_No src files found._");
@@ -72,7 +72,7 @@ async function main() {
     }
   }
 
-  const exampleToml = "agent-zero.example.toml";
+  const exampleToml = "void-claw.example.toml";
   lines.push("## " + exampleToml + "\n```t");
   lines.push((await fs.readFile(exampleToml)).toString());
   lines.push("```\n");

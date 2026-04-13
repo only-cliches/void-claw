@@ -116,6 +116,7 @@ impl EventListener for SessionEventProxy {
     }
 }
 
+/// Helper struct to implement `alacritty_terminal::grid::Dimensions` for resizing the terminal view.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct TermSize {
     pub(crate) cols: usize,
@@ -147,19 +148,27 @@ impl Dimensions for TermSize {
 }
 
 impl ContainerSession {
+    /// Checks if the container session has exited.
     pub fn is_exited(&self) -> bool {
         self.exited.load(Ordering::Relaxed)
     }
+    /// Checks if the terminal has received a bell event.
     pub fn has_bell(&self) -> bool {
         self.has_bell.load(Ordering::Relaxed)
     }
+    /// Resets the bell status for the terminal.
     pub fn clear_bell(&self) {
         self.has_bell.store(false, Ordering::Relaxed);
     }
+    /// Sends input bytes to the container's PTY, mimicking user input.
     pub fn send_input(&self, bytes: Vec<u8>) {
         self.notifier.notify(bytes);
     }
 
+    /// Forcibly terminates the Docker container associated with this session.
+    ///
+    /// Uses `docker rm -f` to stop and remove the container. The command's output
+    /// is discarded, and any errors during `docker rm` are suppressed.
     pub fn terminate(&self) {
         let target = if !self.container_id.is_empty() {
             &self.container_id
@@ -176,6 +185,10 @@ impl ContainerSession {
             .status();
     }
 
+    /// Resizes the terminal window within the container.
+    ///
+    /// This updates the internal window size and notifies the PTY of the change,
+    /// which helps the running process inside the container adjust its output.
     pub fn resize(&mut self, rows: u16, cols: u16) -> anyhow::Result<()> {
         if let Ok(size) = self.window_size.lock() {
             if size.num_lines == rows && size.num_cols == cols {
@@ -200,11 +213,14 @@ impl ContainerSession {
         Ok(())
     }
 
+    /// Generates a human-readable label for the TUI tab, combining container and project names.
     pub fn tab_label(&self) -> String {
         format!("{} @ {}", self.container_name, self.project)
     }
 }
 
+/// Rewrites loopback addresses (127.0.0.1, localhost, 0.0.0.0) to `host.docker.internal`
+/// for reliable container-to-host communication.
 #[instrument(level = "trace", skip(url))]
 pub(crate) fn loopback_to_host_docker(url: &str) -> String {
     url.replace("127.0.0.1", "host.docker.internal")
@@ -313,7 +329,8 @@ mod tests {
     #[test]
     fn gemini_home_args_mounts_both_possible_homes() {
         let root =
-            std::env::temp_dir().join(format!("agent-zero-gemini-home-{}", uuid::Uuid::new_v4()));
+            std::env::temp_dir()
+                .join(format!("void-claw-gemini-home-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&root).expect("create temp dir");
         let mut args = Vec::new();
         append_gemini_home_args(&mut args, &root).expect("append gemini args");
@@ -367,7 +384,8 @@ mod tests {
 
     #[test]
     fn codex_home_args_mounts_correct_paths() {
-        let root = std::env::temp_dir().join(format!("agent-zero-codex-home-{}", uuid::Uuid::new_v4()));
+        let root = std::env::temp_dir()
+            .join(format!("void-claw-codex-home-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&root).expect("create temp dir");
         let mut args = Vec::new();
         super::append_codex_home_args(&mut args, &root).expect("append codex args");
@@ -411,7 +429,7 @@ pub(crate) fn extract_claude_keychain_credential() -> Option<String> {
 
 #[cfg(target_os = "macos")]
 pub(crate) fn read_claude_setup_token() -> Option<(String, ClaudeSessionSource)> {
-    if let Some(token) = read_keychain_value("agent-zero-claude-setup-token") {
+    if let Some(token) = read_keychain_value("void-claw-claude-setup-token") {
         return Some((token, ClaudeSessionSource::SetupTokenKeychain));
     }
     read_setup_token_file().map(|token| (token, ClaudeSessionSource::SetupTokenFile))
@@ -424,7 +442,7 @@ pub(crate) fn read_claude_setup_token() -> Option<(String, ClaudeSessionSource)>
 
 fn read_setup_token_file() -> Option<String> {
     let path = dirs::config_dir()?
-        .join("agent-zero")
+        .join("void-claw")
         .join("claude-setup-token");
     let contents = std::fs::read_to_string(path).ok()?;
     let token = contents.trim().to_string();

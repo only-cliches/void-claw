@@ -12,7 +12,7 @@ use crate::config::{
 // ── Rule loading ─────────────────────────────────────────────────────────────
 
 /// Load and compose rules for a specific project (global + that project's
-/// zero-rules.toml). Called at request time so edits take effect without
+/// void-rules.toml). Called at request time so edits take effect without
 /// restart.
 #[instrument(skip(config))]
 pub fn load_composed_rules_for_project(
@@ -35,7 +35,7 @@ pub fn load_composed_rules_for_project(
     let mut proj_rules = Vec::new();
     if let Some(project_name) = project_name {
         if let Some(project) = config.projects.iter().find(|p| p.name == project_name) {
-            let path = project.canonical_path.join("zero-rules.toml");
+            let path = project.canonical_path.join("void-rules.toml");
             match crate::rules::load(&path) {
                 Ok(rules) => proj_rules.push(rules),
                 Err(e) => {
@@ -433,7 +433,7 @@ pub fn effective_sync_mode(proj: &ProjectConfig, defaults: &DefaultsConfig) -> S
 pub fn combined_excludes(proj: &ProjectConfig, defaults: &DefaultsConfig) -> Result<Vec<String>> {
     let mut patterns = defaults.sync.global_exclude_patterns.clone();
     patterns.extend(proj.exclude_patterns.iter().cloned());
-    let rules_path = proj.canonical_path.join("zero-rules.toml");
+    let rules_path = proj.canonical_path.join("void-rules.toml");
     let rules = crate::rules::load(&rules_path)
         .with_context(|| format!("loading project excludes from {}", rules_path.display()))?;
     patterns.extend(rules.exclude_patterns);
@@ -476,8 +476,8 @@ pub fn effective_command_aliases(
     {
         out.extend(project_aliases);
     }
-    // Layer on aliases from the project's zero-rules.toml (highest priority).
-    let rules_path = proj.canonical_path.join("zero-rules.toml");
+    // Layer on aliases from the project's void-rules.toml (highest priority).
+    let rules_path = proj.canonical_path.join("void-rules.toml");
     if let Ok(rules) = crate::rules::load(&rules_path) {
         if !rules.hostdo.command_aliases.is_empty() {
             out.extend(rules.hostdo.command_aliases);

@@ -152,7 +152,7 @@ pub(crate) fn render_new_project(frame: &mut Frame, app: &App, area: Rect, dimme
             Style::default().fg(tone(Color::DarkGray)),
         )),
         Line::from(Span::styled(
-            "  Writes canonical/zero-rules.toml only if it does not exist.",
+            "  Writes canonical/void-rules.toml only if it does not exist.",
             Style::default().fg(tone(Color::DarkGray)),
         )),
         Line::from(""),

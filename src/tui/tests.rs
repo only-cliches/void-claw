@@ -30,7 +30,7 @@ fn unique_temp_dir(prefix: &str) -> std::path::PathBuf {
         .duration_since(UNIX_EPOCH)
         .expect("system clock is before unix epoch")
         .as_nanos();
-    let dir = std::env::temp_dir().join(format!("agent-zero-{prefix}-{nanos}"));
+    let dir = std::env::temp_dir().join(format!("void-claw-{prefix}-{nanos}"));
     std::fs::create_dir_all(&dir).expect("create temp dir");
     dir
 }
@@ -162,9 +162,9 @@ fn key(code: KeyCode, modifiers: KeyModifiers) -> KeyEvent {
 
 #[test]
 fn build_commands_use_configured_docker_root() {
-    let docker_dir = std::path::Path::new("/tmp/agent-zero-docker-root");
+    let docker_dir = std::path::Path::new("/tmp/void-claw-docker-root");
     let (base_cmd, agent_cmd) =
-        App::build_commands_for(docker_dir, "agent-zero-codex:ubuntu-24.04");
+        App::build_commands_for(docker_dir, "void-claw-codex:ubuntu-24.04");
 
     assert_eq!(
         base_cmd,
@@ -173,8 +173,8 @@ fn build_commands_use_configured_docker_root() {
             "-t".to_string(),
             "my-agent:ubuntu-24.04".to_string(),
             "-f".to_string(),
-            "/tmp/agent-zero-docker-root/ubuntu-24.04.Dockerfile".to_string(),
-            "/tmp/agent-zero-docker-root".to_string(),
+            "/tmp/void-claw-docker-root/ubuntu-24.04.Dockerfile".to_string(),
+            "/tmp/void-claw-docker-root".to_string(),
         ]
     );
     assert_eq!(
@@ -182,10 +182,10 @@ fn build_commands_use_configured_docker_root() {
         Some(vec![
             "build".to_string(),
             "-t".to_string(),
-            "agent-zero-codex:ubuntu-24.04".to_string(),
+            "void-claw-codex:ubuntu-24.04".to_string(),
             "-f".to_string(),
-            "/tmp/agent-zero-docker-root/codex/ubuntu-24.04.Dockerfile".to_string(),
-            "/tmp/agent-zero-docker-root".to_string(),
+            "/tmp/void-claw-docker-root/codex/ubuntu-24.04.Dockerfile".to_string(),
+            "/tmp/void-claw-docker-root".to_string(),
         ])
     );
 }

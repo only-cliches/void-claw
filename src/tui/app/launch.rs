@@ -111,7 +111,7 @@ impl App {
         ) {
             Ok(true) => self.push_log(
                 format!(
-                    "created starter zero-rules.toml in '{}'",
+                    "created starter void-rules.toml in '{}'",
                     proj.canonical_path.display()
                 ),
                 false,
@@ -182,7 +182,7 @@ impl App {
         #[cfg(target_os = "macos")]
         if cfg.defaults.proxy.strict_network {
             self.push_log(
-                "strict_network on macOS requires Docker `--privileged`; agent-zero applies it automatically for this container launch",
+                "strict_network on macOS requires Docker `--privileged`; void-claw applies it automatically for this container launch",
                 false,
             );
         }

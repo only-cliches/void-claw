@@ -278,7 +278,7 @@ impl App {
         cfg.projects
             .iter()
             .find(|p| p.name == project_name)
-            .map(|p| p.canonical_path.join("zero-rules.toml"))
+            .map(|p| p.canonical_path.join("void-rules.toml"))
     }
 
     pub(crate) fn sync_rules_to_workspace(&mut self, project_name: &str) {

@@ -102,7 +102,7 @@ pub(super) async fn exec_handler(
         return server_deny(reason.to_string());
     }
 
-    // Load composed rules from zero-rules.toml files (global + all projects).
+    // Load composed rules from void-rules.toml files (global + all projects).
     let mut rules =
         match config::load_composed_rules_for_project(&cfg, Some(identity_project.as_str())) {
             Ok(rules) => rules,

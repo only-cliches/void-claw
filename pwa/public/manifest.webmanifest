@@ -1,0 +1,18 @@
+{
+  "name": "Solid Park Panda PWA",
+  "short_name": "SolidPWA",
+  "description": "A TypeScript Progressive Web App built with SolidJS, Park UI, and PandaCSS.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f8fafc",
+  "theme_color": "#2563eb",
+  "icons": [
+    {
+      "src": "/icons/pwa-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

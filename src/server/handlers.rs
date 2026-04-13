@@ -20,6 +20,7 @@ use crate::state::{AuditEntry, StateManager};
 
 /// A command request waiting for developer approval in the TUI.
 pub struct PendingItem {
+    /// Unique identifier for this pending item, used for TUI interaction and tracking.
     pub id: String,
     pub project: String,
     pub container_id: Option<String>,
@@ -29,12 +30,16 @@ pub struct PendingItem {
     /// Container/request cwd used for rule matching and persistence.
     pub rule_cwd: PathBuf,
     pub matched_command: Option<String>,
+    /// Sender for the `ApprovalDecision` once the TUI processes this item.
     pub response_tx: Option<oneshot::Sender<ApprovalDecision>>,
 }
 
 /// The decision returned by the TUI for a pending command request.
 pub enum ApprovalDecision {
+    /// Approve the command. `remember: true` means the approval will be persisted
+    /// for future identical commands.
     Approve { remember: bool },
+    /// Deny the command.
     Deny,
 }
 
@@ -80,6 +85,7 @@ pub struct StopResponse {
 
 // ── Server state ─────────────────────────────────────────────────────────────
 
+/// Represents the identity of a running container session.
 #[derive(Debug, Clone)]
 pub struct SessionIdentity {
     pub project: String,
@@ -87,24 +93,32 @@ pub struct SessionIdentity {
     pub mount_target: String,
 }
 
+/// A registry for active container sessions, mapping session tokens to their identities.
+/// Provides thread-safe access to session information.
 #[derive(Clone, Default)]
 pub struct SessionRegistry {
     inner: Arc<Mutex<HashMap<String, SessionIdentity>>>,
 }
 
 impl SessionRegistry {
+    /// Inserts a new session identity into the registry.
+    /// Acquires a lock to safely modify the internal map.
     pub fn insert(&self, session_token: String, identity: SessionIdentity) {
         if let Ok(mut map) = self.inner.lock() {
             map.insert(session_token, identity);
         }
     }
 
+    /// Removes a session identity from the registry.
+    /// Acquires a lock to safely modify the internal map.
     pub fn remove(&self, session_token: &str) {
         if let Ok(mut map) = self.inner.lock() {
             map.remove(session_token);
         }
     }
 
+    /// Retrieves a session identity from the registry.
+    /// Acquires a lock to safely read from the internal map.
     pub fn get(&self, session_token: &str) -> Option<SessionIdentity> {
         self.inner
             .lock()
@@ -113,15 +127,21 @@ impl SessionRegistry {
     }
 }
 
-/// Shared server state for hostdo requests.
+/// Shared server state for hostdo requests and other manager operations.
+/// This state is shared across all HTTP handlers.
 #[derive(Clone)]
 pub struct ServerState {
     pub config: SharedConfig,
     pub state: StateManager,
+    /// Channel to send `PendingItem`s to the TUI for developer approval.
     pub pending_tx: mpsc::Sender<PendingItem>,
+    /// Channel to send `ContainerStopItem`s to the TUI to handle container termination.
     pub stop_tx: mpsc::Sender<ContainerStopItem>,
+    /// Channel to send `AuditEntry` events for logging and display in the TUI.
     pub audit_tx: mpsc::Sender<AuditEntry>,
+    /// The secret token used for authenticating requests from containers.
     pub token: String,
+    /// Registry of currently active container sessions.
     pub sessions: SessionRegistry,
 }
 
@@ -141,11 +161,14 @@ pub enum ContainerStopDecision {
 // NOTE: hostdo commands execute on the developer machine.
 // They must not inherit the managed network proxy environment.
 
+/// Initializes and runs the Axum HTTP server to listen for incoming requests.
+/// This server handles `/exec` commands from containers (via `hostdo`) and `/container/stop` requests (via `killme`).
 #[instrument(skip(server_state, listener))]
 pub async fn run_with_listener(
     server_state: ServerState,
     listener: tokio::net::TcpListener,
 ) -> Result<()> {
+    // The server state is wrapped in Arc so it can be shared immutably across multiple handler instances.
     let router = Router::new()
         .route("/exec", post(super::core::exec_handler))
         .route("/container/stop", post(stop_handler))
@@ -155,6 +178,11 @@ pub async fn run_with_listener(
     Ok(())
 }
 
+/// Handles incoming requests to stop a container.
+///
+/// This endpoint is typically called by the `killme` script within a container.
+/// It verifies the session identity and then sends a `ContainerStopItem` to the TUI
+/// for processing. A timeout is applied for awaiting the TUI's decision.
 pub(super) async fn stop_handler(
     State(state): State<Arc<ServerState>>,
     headers: HeaderMap,
@@ -182,6 +210,8 @@ pub(super) async fn stop_handler(
             .into_response();
     }
 
+    // Wait for the TUI to process the stop request, with a 10-second timeout.
+    // This timeout duration is currently fixed but could be made configurable.
     match tokio::time::timeout(Duration::from_secs(10), response_rx).await {
         Ok(Ok(ContainerStopDecision::Stopped)) => Json(StopResponse { ok: true }).into_response(),
         Ok(Ok(ContainerStopDecision::NotFound)) => (
@@ -203,6 +233,7 @@ pub(super) async fn stop_handler(
     }
 }
 
+/// Creates a standard HTTP 403 Forbidden response with a JSON error payload.
 pub(super) fn deny(reason: String) -> Response {
     (
         StatusCode::FORBIDDEN,
@@ -214,14 +245,24 @@ pub(super) fn deny(reason: String) -> Response {
         .into_response()
 }
 
+/// Validates the session identity from incoming request headers.
+///
+/// This function checks for:
+/// 1. A valid `Authorization` header with a `Bearer` token matching the server's secret token.
+/// 2. A non-empty `x-void-claw-session-token` header.
+/// 3. That the session token corresponds to an active session in the `SessionRegistry`.
+///
+/// Returns `Ok(SessionIdentity)` on success, or an `Err(Response)` with an appropriate
+/// HTTP status code and error message on failure.
 pub(super) fn require_session_identity(
     state: &ServerState,
     headers: &HeaderMap,
 ) -> Result<SessionIdentity, Response> {
+    // Extract and validate the Authorization header.
     let auth = headers
         .get("authorization")
         .and_then(|v| v.to_str().ok())
-        .unwrap_or("");
+        .unwrap_or(""); // If header is missing or invalid, it defaults to an empty string.
     let expected = format!("Bearer {}", state.token);
     if auth != expected {
         return Err((
@@ -234,8 +275,9 @@ pub(super) fn require_session_identity(
             .into_response());
     }
 
+    // Extract and validate the session token.
     let session_token = headers
-        .get("x-agent-zero-session-token")
+        .get("x-void-claw-session-token")
         .and_then(|v| v.to_str().ok())
         .unwrap_or("")
         .trim();
@@ -250,6 +292,7 @@ pub(super) fn require_session_identity(
             .into_response());
     }
 
+    // Look up the session in the registry.
     state.sessions.get(session_token).ok_or_else(|| {
         (
             StatusCode::UNAUTHORIZED,
@@ -262,6 +305,10 @@ pub(super) fn require_session_identity(
     })
 }
 
+/// Records an audit entry.
+///
+/// The entry is sent over a channel to the TUI for display and logged to persistent storage
+/// on a blocking thread to avoid impacting the main event loop.
 pub(super) async fn record_audit(state: &ServerState, entry: AuditEntry) {
     let _ = state.audit_tx.send(entry.clone()).await;
     let state_clone = state.state.clone();
@@ -270,6 +317,11 @@ pub(super) async fn record_audit(state: &ServerState, entry: AuditEntry) {
     });
 }
 
+/// Resolves the effective host-side current working directory (CWD) for a command.
+///
+/// This function translates a container's CWD into the corresponding host CWD,
+/// taking into account explicit mount targets and a fallback to the historical
+/// `/workspace` mapping.
 pub(super) fn resolve_host_cwd(
     request_cwd: &Path,
     mount_target: Option<&str>,
@@ -303,12 +355,18 @@ pub(super) fn resolve_host_cwd(
     request_cwd.to_path_buf()
 }
 
-/// Resolved alias: the expanded argv and an optional cwd override.
+/// Represents a resolved command alias, including the expanded argv and an optional CWD override.
 pub(super) struct ResolvedAlias {
     pub(super) argv: Vec<String>,
     pub(super) cwd_override: Option<PathBuf>,
 }
 
+/// Resolves command aliases for hostdo requests.
+///
+/// If the first argument of `argv` matches an alias, it expands the alias
+/// command and appends any remaining arguments. It also resolves magic CWD
+/// placeholders (`$CANONICAL`, `$WORKSPACE`) in alias definitions.
+/// The `shell_words::split` crate is used to correctly parse shell-like alias commands.
 pub(super) fn resolve_exec_argv_aliases(
     argv: &[String],
     aliases: &HashMap<String, AliasValue>,
@@ -322,6 +380,7 @@ pub(super) fn resolve_exec_argv_aliases(
         });
     }
     let Some(alias) = aliases.get(&argv[0]) else {
+        // No alias found, return original argv.
         return Ok(ResolvedAlias {
             argv: argv.to_vec(),
             cwd_override: None,
@@ -335,6 +394,7 @@ pub(super) fn resolve_exec_argv_aliases(
             argv[0]
         ));
     }
+    // Append any arguments that followed the alias.
     if argv.len() > 1 {
         expanded.extend_from_slice(&argv[1..]);
     }
@@ -492,7 +552,7 @@ mod tests {
         let mut headers = HeaderMap::new();
         headers.insert("authorization", "Bearer invalid_token".parse().unwrap());
         headers.insert(
-            "x-agent-zero-session-token",
+            "x-void-claw-session-token",
             "some_session_token".parse().unwrap(),
         );
 
@@ -536,7 +596,7 @@ mod tests {
         let mut headers = HeaderMap::new();
         headers.insert("authorization", "Bearer test_token".parse().unwrap());
         headers.insert(
-            "x-agent-zero-session-token",
+            "x-void-claw-session-token",
             "unknown_session".parse().unwrap(),
         );
 
@@ -569,7 +629,7 @@ mod tests {
         let mut headers = HeaderMap::new();
         headers.insert("authorization", "Bearer test_token".parse().unwrap());
         headers.insert(
-            "x-agent-zero-session-token",
+            "x-void-claw-session-token",
             "valid_session".parse().unwrap(),
         );
 

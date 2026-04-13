@@ -46,7 +46,7 @@ pub fn init(config: &Config) -> Result<TelemetryHandle> {
 
         let hostname = machine_hostname();
         let resource = Resource::new(vec![
-            KeyValue::new("service.name", "agent-zero"),
+            KeyValue::new("service.name", "void-claw"),
             KeyValue::new("service.instance.id", instance_id.to_string()),
             KeyValue::new("host.name", hostname),
         ]);
@@ -58,7 +58,7 @@ pub fn init(config: &Config) -> Result<TelemetryHandle> {
 
         // Get the tracer *before* boxing the provider, to satisfy the
         // `PreSampledTracer` bound required by `tracing_opentelemetry::layer`.
-        let tracer = provider.tracer("agent-zero");
+        let tracer = provider.tracer("void-claw");
         let otel_layer = tracing_opentelemetry::layer().with_tracer(tracer);
 
         opentelemetry::global::set_tracer_provider(provider.clone());
@@ -146,6 +146,6 @@ fn build_log_writer(
 )> {
     let log_dir = &config.logging.log_dir;
     std::fs::create_dir_all(log_dir)?;
-    let appender = tracing_appender::rolling::daily(log_dir, "agent-zero.log");
+    let appender = tracing_appender::rolling::daily(log_dir, "void-claw.log");
     Ok(tracing_appender::non_blocking(appender))
 }

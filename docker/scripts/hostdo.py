@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 """
-hostdo — agent-zero container-side command bridge (Python implementation).
+hostdo — void-claw container-side command bridge (Python implementation).
 
-Routes commands through the agent-zero host execution server for policy
+Routes commands through the void-claw host execution server for policy
 enforcement and developer approval.  Requires only the Python 3 standard
 library — no third-party packages.
 
 Environment variables:
-  AGENT_ZERO_URL      Base URL of the agent-zero manager (default: http://127.0.0.1:7878)
-  AGENT_ZERO_TOKEN    Bearer token shown by the agent-zero TUI           (required)
-  AGENT_ZERO_SESSION_TOKEN  Per-session token injected by agent-zero     (required)
+  VOID_CLAW_URL      Base URL of the void-claw manager (default: http://127.0.0.1:7878)
+  VOID_CLAW_TOKEN    Bearer token shown by the void-claw TUI           (required)
+  VOID_CLAW_SESSION_TOKEN  Per-session token injected by void-claw     (required)
 
 Exit code mirrors the executed command; exits 1 on infrastructure errors.
 
@@ -31,8 +31,8 @@ def _no_proxy_opener() -> urllib.request.OpenerDirector:
     """
     Return a URL opener that bypasses HTTP_PROXY / HTTPS_PROXY env vars.
 
-    The agent-zero control channel must never be routed through the MITM proxy
-    that agent-zero itself is managing — doing so would create a dependency loop
+    The void-claw control channel must never be routed through the MITM proxy
+    that void-claw itself is managing — doing so would create a dependency loop
     and cause the approval request to be intercepted before it reaches the
     manager.
     """
@@ -107,18 +107,21 @@ def main() -> None:
         print("usage: hostdo <command> [args...]", file=sys.stderr)
         sys.exit(1)
 
-    base_url = os.environ.get("AGENT_ZERO_URL", "http://127.0.0.1:7878").rstrip("/")
+    base_url = os.environ.get("VOID_CLAW_URL", "http://127.0.0.1:7878").rstrip("/")
 
-    token = os.environ.get("AGENT_ZERO_TOKEN", "")
+    token = os.environ.get("VOID_CLAW_TOKEN", "")
     if not token:
-        print("hostdo: AGENT_ZERO_TOKEN is not set", file=sys.stderr)
-        print("  Set it to the token shown in the agent-zero TUI.", file=sys.stderr)
+        print("hostdo: VOID_CLAW_TOKEN is not set", file=sys.stderr)
+        print("  Set it to the token shown in the void-claw TUI.", file=sys.stderr)
         sys.exit(1)
 
-    session_token = os.environ.get("AGENT_ZERO_SESSION_TOKEN", "")
+    session_token = os.environ.get("VOID_CLAW_SESSION_TOKEN", "")
     if not session_token:
-        print("hostdo: AGENT_ZERO_SESSION_TOKEN is not set", file=sys.stderr)
-        print("  This container was likely started with an older agent-zero image.", file=sys.stderr)
+        print("hostdo: VOID_CLAW_SESSION_TOKEN is not set", file=sys.stderr)
+        print(
+            "  This container was likely started with an older void-claw image.",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
     try:
@@ -146,7 +149,7 @@ def main() -> None:
                 "Authorization": f"Bearer {token}",
                 "Content-Type": "application/json",
                 "X-Hostdo-Pid": str(os.getpid()),
-                "x-agent-zero-session-token": session_token,
+                "x-void-claw-session-token": session_token,
             },
             method="POST",
         )
@@ -173,7 +176,7 @@ def main() -> None:
         reason = getattr(last_err, "reason", last_err)
         print(f"hostdo: request failed: {reason}", file=sys.stderr)
         print(
-            "  Is agent-zero running? Is AGENT_ZERO_URL correct? "
+            "  Is void-claw running? Is VOID_CLAW_URL correct? "
             f"({base_url})",
             file=sys.stderr,
         )

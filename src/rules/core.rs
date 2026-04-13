@@ -1,6 +1,6 @@
-/// Parses `zero-rules.toml` files and composes global + per-project rules.
+/// Parses `void-rules.toml` files and composes global + per-project rules.
 ///
-/// `zero-rules.toml` lives in the canonical project root (committed to git).
+/// `void-rules.toml` lives in the canonical project root (committed to git).
 /// It controls what the AI agent is allowed to do: which host-side commands
 /// can run, and which network destinations are reachable.
 use anyhow::{Context, Result};
@@ -55,12 +55,12 @@ impl Default for NetworkPolicy {
     }
 }
 
-// ── zero-rules.toml schema ───────────────────────────────────────────────────
+// ── void-rules.toml schema ───────────────────────────────────────────────────
 
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
 pub struct ProjectRules {
     /// Optional instructions for a human or LLM agent. This field is preserved
-    /// across automatic edits to this file (e.g. when agent-zero appends a new
+    /// across automatic edits to this file (e.g. when void-claw appends a new
     /// `hostdo` command rule).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub llm_instructions: Option<String>,
@@ -272,15 +272,15 @@ pub fn host_matches(pattern: &str, host: &str) -> bool {
 
 // ── Loading / saving ─────────────────────────────────────────────────────────
 
-/// Load a `zero-rules.toml` file.  Returns a default (empty) rule set if the
+/// Load a `void-rules.toml` file.  Returns a default (empty) rule set if the
 /// file does not exist, rather than an error.
 pub fn load(path: &Path) -> Result<ProjectRules> {
     if !path.exists() {
         return Ok(ProjectRules::default());
     }
     let raw = std::fs::read_to_string(path)
-        .with_context(|| format!("reading zero-rules.toml: {}", path.display()))?;
-    toml::from_str(&raw).with_context(|| format!("parsing zero-rules.toml: {}", path.display()))
+        .with_context(|| format!("reading void-rules.toml: {}", path.display()))?;
+    toml::from_str(&raw).with_context(|| format!("parsing void-rules.toml: {}", path.display()))
 }
 
 /// Append an auto-approved command to the rules file at `path`.
@@ -330,8 +330,8 @@ pub fn write_rules_file(path: &Path, rules: &ProjectRules, is_new: bool) -> Resu
 }
 
 const RULES_FILE_HEADER: &str = "\
-# zero-rules.toml — policy for what the AI agent can do in this project.
-# Commit this file to your repository. agent-zero reads it but never pushes
+# void-rules.toml — policy for what the AI agent can do in this project.
+# Commit this file to your repository. void-claw reads it but never pushes
 # changes back during workspace sync.
 #
 # Preferred place for *human/LLM instructions*:

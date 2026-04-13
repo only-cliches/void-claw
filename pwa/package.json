@@ -1,0 +1,27 @@
+{
+  "name": "pwa",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "panda codegen --clean && vite",
+    "build": "panda codegen --clean && tsc -b && vite build",
+    "panda": "panda codegen --clean",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@ark-ui/solid": "^5.36.0",
+    "solid-js": "^1.9.12"
+  },
+  "devDependencies": {
+    "@pandacss/dev": "^1.9.1",
+    "@pandacss/postcss": "^1.9.1",
+    "@pandacss/preset-panda": "^1.9.1",
+    "@park-ui/panda-preset": "^0.42.0",
+    "@types/node": "^24.12.2",
+    "postcss": "^8.5.9",
+    "typescript": "~6.0.2",
+    "vite": "^8.0.4",
+    "vite-plugin-solid": "^2.11.12"
+  }
+}

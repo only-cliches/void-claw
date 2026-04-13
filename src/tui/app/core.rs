@@ -331,11 +331,11 @@ impl App {
     }
 
     pub(crate) fn log_project_rules_status(&mut self, project: &crate::config::ProjectConfig) {
-        let rules_path = project.canonical_path.join("zero-rules.toml");
+        let rules_path = project.canonical_path.join("void-rules.toml");
         if !rules_path.exists() {
             self.push_log(
                 format!(
-                    "Searched for rules at {} but zero-rules.toml was not found",
+                    "Searched for rules at {} but void-rules.toml was not found",
                     rules_path.display()
                 ),
                 false,

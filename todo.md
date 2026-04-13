@@ -1,4 +1,4 @@
-# Agent Zero Roadmap & TODO
+# Void Claw Roadmap & TODO
 
 ## New Features
 
@@ -11,7 +11,7 @@ Harden the manager/TUI against containers flooding `hostdo` or network approval 
 * Enforce caps before enqueueing into TUI pending lists to prevent unbounded growth.
 
 **Proposed Config:**
-* Add a `[flood]` (or `[security.flood]`) section to `agent-zero.toml`.
+* Add a `[flood]` (or `[security.flood]`) section to `void-claw.toml`.
 * Separate knobs for `hostdo` vs `network` (different legitimate volumes).
 * Threshold ideas:
   * `max_pending_exec`, `max_pending_net` (TUI-visible backlog limits)
@@ -26,15 +26,15 @@ Harden the manager/TUI against containers flooding `hostdo` or network approval 
 * Consider per-session host-side exec concurrency limits so even approved/auto flows can’t spawn unlimited processes.
 
 ### [ ] Agent-to-Agent Spawning (Orchestration)
-Enable an agent running inside an Agent Zero container to programmatically spawn additional agents to perform sub-tasks.
+Enable an agent running inside a Void Claw container to programmatically spawn additional agents to perform sub-tasks.
 
 **Core Concept:**
-A new container-side utility (e.g., `spawn-agent`) that communicates with the Agent Zero manager to launch new containers.
+A new container-side utility (e.g., `spawn-agent`) that communicates with the Void Claw manager to launch new containers.
 
 **Technical Requirements:**
 *   **Bridge Implementation**: Create a `spawn-agent` script (similar to `hostdo`) that sends a launch request to the manager's server.
 *   **Security & Permissions**:
-    *   Add a `[spawning]` section to `zero-rules.toml` to permit/deny this action.
+    *   Add a `[spawning]` section to `void-rules.toml` to permit/deny this action.
     *   Implement "fork bomb" protection (max nesting depth, max concurrent sub-agents).
 *   **Workspace Management**:
     *   Support launching into the `current` workspace (requires handling file concurrency).
@@ -74,7 +74,7 @@ Architectural Considerations for Discussion:
 
 1. Approval Flow: Should spawning a new agent require manual approval in the TUI (like hostdo commands do)? This would be consistent with the "Human-in-the-loop" philosophy of the project.
 2. Initial Prompt Injection: How do we know when the agent inside the new container is ready to receive the prompt? Simply writing to the PTY immediately after spawn usually works, but it can be racey if the shell/agent is still booting.
-3. Communication Bridge: Would it be better to have a dedicated spawn-agent script in docker/scripts/ alongside hostdo and killme, or should we consolidate these into a single "agent-zero-bridge" tool?
+3. Communication Bridge: Would it be better to have a dedicated spawn-agent script in docker/scripts/ alongside hostdo and killme, or should we consolidate these into a single "void-claw-bridge" tool?
 
 What are your thoughts on these approaches? Does this align with how you were imagining using these features?
 

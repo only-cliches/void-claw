@@ -1,7 +1,7 @@
-# agent-zero + Google Gemini CLI — Ubuntu 24.04 LTS
+# void-claw + Google Gemini CLI — Ubuntu 24.04 LTS
 #
 # Build (from repo root — must have already built the base image):
-#   docker build -t agent-zero-gemini:ubuntu-24.04 -f docker/gemini/ubuntu-24.04.Dockerfile .
+#   docker build -t void-claw-gemini:ubuntu-24.04 -f docker/gemini/ubuntu-24.04.Dockerfile .
 
 FROM my-agent:ubuntu-24.04
 
