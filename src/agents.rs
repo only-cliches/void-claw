@@ -2,7 +2,9 @@ use anyhow::Context;
 use std::path::Path;
 
 use crate::config::AgentKind;
-use crate::rules::{ApprovalMode, HostdoRules, NetworkPolicy, NetworkRule, NetworkRules, ProjectRules};
+use crate::rules::{
+    ApprovalMode, HostdoRules, NetworkPolicy, NetworkRule, NetworkRules, ProjectRules,
+};
 // ── zero-rules.toml starter ───────────────────────────────────────────────────
 
 /// Generate a starter `zero-rules.toml` for the given agent kind.
@@ -345,7 +347,12 @@ mod tests {
     #[test]
     fn gemini_starter_rules_include_google_hosts() {
         let rules = generate_starter_project_rules(&AgentKind::Gemini);
-        let hosts: Vec<&str> = rules.network.rules.iter().map(|rule| rule.host.as_str()).collect();
+        let hosts: Vec<&str> = rules
+            .network
+            .rules
+            .iter()
+            .map(|rule| rule.host.as_str())
+            .collect();
         assert!(hosts.contains(&"generativelanguage.googleapis.com"));
         assert!(hosts.contains(&"accounts.google.com"));
         assert!(hosts.contains(&"oauth2.googleapis.com"));

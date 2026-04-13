@@ -46,4 +46,37 @@ A new container-side utility (e.g., `spawn-agent`) that communicates with the Ag
     `spawn-agent --project <name> --agent <type> --cmd "the task description"`
 
 ---
-*Last Updated: 2026-04-11*
+
+
+1. Running tests/builds from other Docker containers
+
+Currently, hostdo acts as a bridge to run commands directly on the host machine. To run them in a container instead, we could expand the /exec protocol:
+
+* How it would work: You could use a command like hostdo --image node:20 npm test.
+* Manager Side: The manager would see the --image flag and, instead of running the command on the host, it would execute docker run --rm -v <workspace>:/workspace ... node:20 npm test.
+* Benefits: This keeps the build/test environment isolated from the host and allows you to use different versions of tools (e.g., Node.js 18 vs 20) without changing the host or the main agent container.
+* Implementation: Since these are typically short-lived and non-interactive, they wouldn't need a TUI tab; the manager would just stream the output back to the calling hostdo process.
+
+2. Spawning new agent containers with a prompt
+
+This is essentially "agent orchestration." An agent in one container can "fork" another agent to help with a sub-task.
+
+* How it would work: A command like hostdo spawn-agent --profile claude --prompt "Analyze the logs in /workspace/logs and summarize the errors.".
+* Manager Side:
+    1. The manager receives the spawn request.
+    2. It sends a message to the TUI to open a new session using the specified profile.
+    3. The TUI calls its existing spawn logic to create the new container and terminal tab.
+    4. Once the container is up, the TUI automatically injects the initial prompt followed by a newline into the new session's PTY.
+* Killme expansion: You mentioned killme. Perhaps a killme --next "Task finished, now do X" could be used to terminate the current container and immediately trigger a new one with a follow-up task, though simply having spawn-agent available inside the
+    container covers most "handoff" scenarios.
+
+Architectural Considerations for Discussion:
+
+1. Approval Flow: Should spawning a new agent require manual approval in the TUI (like hostdo commands do)? This would be consistent with the "Human-in-the-loop" philosophy of the project.
+2. Initial Prompt Injection: How do we know when the agent inside the new container is ready to receive the prompt? Simply writing to the PTY immediately after spawn usually works, but it can be racey if the shell/agent is still booting.
+3. Communication Bridge: Would it be better to have a dedicated spawn-agent script in docker/scripts/ alongside hostdo and killme, or should we consolidate these into a single "agent-zero-bridge" tool?
+
+What are your thoughts on these approaches? Does this align with how you were imagining using these features?
+
+
+*Last Updated: 2026-04-12*

@@ -6,7 +6,7 @@
 
 </div>
 
-![Agent Zero Demo](https://github.com/only-cliches/agent-zero/blob/main/demo.gif?raw=true)
+![Agent Zero Demo showing launching an agent and the approval dialog.](https://github.com/only-cliches/agent-zero/blob/main/demo.gif?raw=true)
 
 AI coding agents are powerful, and by default, completely unconstrained. Give one your terminal and it has your machine: your files, your credentials, your network. Agent Zero enforces a zero-trust boundary around every agent session, running agents in isolated Docker containers with policy-enforced access to your code, your host, and the outside world. Nothing gets through without a rule that allows it.
 
@@ -152,7 +152,7 @@ host = "malicious-site.com"
 policy = "deny"
 ```
 
-## Bridge Commands
+## Agent Commands
 
 Because agents run in an isolated container with no direct access to your machine, Agent Zero provides two bridge commands for controlled interaction with the host.
 
@@ -166,7 +166,7 @@ Lets an agent request execution of specific commands on your host machine, witho
 
 ### `killme` (Container Exit)
 
-Lets an agent cleanly terminate its own session.
+Lets an agent cleanly terminate its own container.
 
 * **Usage inside container:** `killme`
 * **How it works:** Sends a clean shutdown request to the Agent Zero manager.

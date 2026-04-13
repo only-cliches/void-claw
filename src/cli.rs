@@ -5,7 +5,7 @@ use std::path::PathBuf;
 #[command(
     name = "agent-zero",
     version,
-    about = "Agent workspace manager — safely exposes filtered project workspaces to AI coding agents"
+    about = "LLM agent workspace manager — safely exposes filtered project workspaces to AI coding agents"
 )]
 pub struct Cli {
     /// Path to config file. Starts the interactive workspace manager.

@@ -168,7 +168,7 @@ mod tests {
     fn load_or_create_is_idempotent() {
         let dir = tempdir().expect("create temp dir");
         let path = dir.path();
-        
+
         // 1. Create for the first time
         let store1 = CaStore::load_or_create(path).expect("first create");
         let cert1 = store1.cert_pem.clone();
@@ -177,20 +177,33 @@ mod tests {
 
         // 2. Load again from the same dir
         let store2 = CaStore::load_or_create(path).expect("second load");
-        assert_eq!(store2.cert_pem, cert1, "CA certificate should be persistent");
+        assert_eq!(
+            store2.cert_pem, cert1,
+            "CA certificate should be persistent"
+        );
     }
 
     #[test]
     fn leaf_server_config_caches_results() {
         let dir = tempdir().expect("create temp dir");
         let store = CaStore::load_or_create(dir.path()).expect("create store");
-        
+
         let config1 = store.leaf_server_config("example.com").expect("first leaf");
-        let config2 = store.leaf_server_config("example.com").expect("second leaf");
-        
-        assert!(Arc::ptr_eq(&config1, &config2), "server configs should be cached");
-        
-        let config3 = store.leaf_server_config("other.com").expect("different domain");
-        assert!(!Arc::ptr_eq(&config1, &config3), "different domains should have different configs");
+        let config2 = store
+            .leaf_server_config("example.com")
+            .expect("second leaf");
+
+        assert!(
+            Arc::ptr_eq(&config1, &config2),
+            "server configs should be cached"
+        );
+
+        let config3 = store
+            .leaf_server_config("other.com")
+            .expect("different domain");
+        assert!(
+            !Arc::ptr_eq(&config1, &config3),
+            "different domains should have different configs"
+        );
     }
 }

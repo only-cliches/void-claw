@@ -220,7 +220,10 @@ fn prompt_config_creation_choice() -> Result<ConfigCreationChoice> {
         "1. Create default config at ~/.config/agent-zero/agent-zero.toml {}",
         "(Recommended)".dark_grey()
     );
-    println!("2. Create default config at {}/agent-zero.toml", cwd.display());
+    println!(
+        "2. Create default config at {}/agent-zero.toml",
+        cwd.display()
+    );
     println!("3. Cancel and close");
     print!("Select an option [1-3]: ");
     io::stdout().flush()?;
@@ -270,9 +273,18 @@ mod tests {
 
     #[test]
     fn config_creation_choice_variants_are_stable() {
-        assert!(matches!(ConfigCreationChoice::CreateCwd, ConfigCreationChoice::CreateCwd));
-        assert!(matches!(ConfigCreationChoice::CreateHome, ConfigCreationChoice::CreateHome));
-        assert!(matches!(ConfigCreationChoice::Cancel, ConfigCreationChoice::Cancel));
+        assert!(matches!(
+            ConfigCreationChoice::CreateCwd,
+            ConfigCreationChoice::CreateCwd
+        ));
+        assert!(matches!(
+            ConfigCreationChoice::CreateHome,
+            ConfigCreationChoice::CreateHome
+        ));
+        assert!(matches!(
+            ConfigCreationChoice::Cancel,
+            ConfigCreationChoice::Cancel
+        ));
     }
 
     #[test]

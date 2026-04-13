@@ -29,21 +29,21 @@ impl SharedConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Arc;
     use crate::config::Config;
+    use std::sync::Arc;
 
     #[test]
     fn shared_config_hot_reloads() {
         let config1 = Arc::new(Config::default());
         let shared = SharedConfig::new(config1);
-        
+
         let config2 = Arc::new(Config {
             docker_dir: std::path::PathBuf::from("/new/docker"),
             ..Config::default()
         });
-        
+
         shared.set(config2);
-        
+
         let current = shared.get();
         assert_eq!(current.docker_dir, std::path::PathBuf::from("/new/docker"));
     }
@@ -53,15 +53,18 @@ mod tests {
         let config1 = Arc::new(Config::default());
         let shared1 = SharedConfig::new(config1);
         let shared2 = shared1.clone();
-        
+
         let config2 = Arc::new(Config {
             docker_dir: std::path::PathBuf::from("/shared/docker"),
             ..Config::default()
         });
-        
+
         shared1.set(config2);
-        
+
         // Both clones should see the update
-        assert_eq!(shared2.get().docker_dir, std::path::PathBuf::from("/shared/docker"));
+        assert_eq!(
+            shared2.get().docker_dir,
+            std::path::PathBuf::from("/shared/docker")
+        );
     }
 }

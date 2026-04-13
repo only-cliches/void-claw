@@ -164,6 +164,17 @@ timeout_secs = 60
 concurrency = "queue"
 approval_mode = "auto"
 
+[[hostdo.commands]]
+argv = [
+    "cargo",
+    "fmt",
+    "--check",
+]
+cwd = "$WORKSPACE"
+timeout_secs = 60
+concurrency = "queue"
+approval_mode = "auto"
+
 [network]
 default_policy = "prompt"
 
@@ -320,5 +331,11 @@ policy = "auto"
 [[network.rules]]
 methods = ["*"]
 host = "opencode.ai"
+path_prefix = "/"
+policy = "auto"
+
+[[network.rules]]
+methods = ["*"]
+host = "docs.rs"
 path_prefix = "/"
 policy = "auto"

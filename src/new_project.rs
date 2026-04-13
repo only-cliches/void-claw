@@ -358,7 +358,10 @@ root = "{}"
         let proj = cfg.projects.first().expect("project");
         assert_eq!(proj.name, "proj");
         assert_eq!(proj.canonical_path, canon);
-        assert_eq!(proj.sync.as_ref().and_then(|s| s.mode.clone()), Some(SyncMode::Direct));
+        assert_eq!(
+            proj.sync.as_ref().and_then(|s| s.mode.clone()),
+            Some(SyncMode::Direct)
+        );
         assert!(!proj.disposable);
     }
 }

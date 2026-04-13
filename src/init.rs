@@ -173,7 +173,8 @@ fn write_text_file(path: &Path, contents: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::{
-        builtin_dockerfile_paths, ensure_docker_assets, resolve_init_docker_dir, write_sample_config,
+        builtin_dockerfile_paths, ensure_docker_assets, resolve_init_docker_dir,
+        write_sample_config,
     };
     use crate::config::Config;
 
@@ -193,7 +194,8 @@ mod tests {
 
     #[test]
     fn resolve_init_docker_dir_prefers_local_docker_folder() {
-        let root = std::env::temp_dir().join(format!("agent-zero-init-local-{}", uuid::Uuid::new_v4()));
+        let root =
+            std::env::temp_dir().join(format!("agent-zero-init-local-{}", uuid::Uuid::new_v4()));
         let cwd = root.join("cwd");
         let home = root.join("home/.config/agent-zero");
         std::fs::create_dir_all(cwd.join("docker")).expect("create local docker dir");
@@ -203,7 +205,8 @@ mod tests {
 
     #[test]
     fn resolve_init_docker_dir_falls_back_to_home_config_root() {
-        let root = std::env::temp_dir().join(format!("agent-zero-init-home-{}", uuid::Uuid::new_v4()));
+        let root =
+            std::env::temp_dir().join(format!("agent-zero-init-home-{}", uuid::Uuid::new_v4()));
         let cwd = root.join("cwd");
         let home = root.join("home/.config/agent-zero");
         std::fs::create_dir_all(&cwd).expect("create cwd");

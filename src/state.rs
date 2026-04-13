@@ -161,11 +161,11 @@ mod tests {
         let dir = tempdir().expect("create temp dir");
         let state1 = StateManager::open(dir.path()).expect("open state1");
         let token1 = state1.get_or_create_token().expect("get token1");
-        
+
         // Re-open same dir
         let state2 = StateManager::open(dir.path()).expect("open state2");
         let token2 = state2.get_or_create_token().expect("get token2");
-        
+
         assert_eq!(token1, token2);
     }
 
@@ -173,7 +173,7 @@ mod tests {
     fn log_audit_and_recent_audit_works() {
         let dir = tempdir().expect("create temp dir");
         let state = StateManager::open(dir.path()).expect("open state");
-        
+
         let now = Utc::now();
         let entry1 = AuditEntry {
             project: "p1".to_string(),
@@ -193,10 +193,10 @@ mod tests {
             duration_ms: Some(5),
             timestamp: now,
         };
-        
+
         state.log_audit(&entry1).expect("log 1");
         state.log_audit(&entry2).expect("log 2");
-        
+
         let recent = state.recent_audit(10).expect("recent");
         assert_eq!(recent.len(), 2);
         // Should be newest first
@@ -209,10 +209,10 @@ mod tests {
         let dir = tempdir().expect("create temp dir");
         let state = StateManager::open(dir.path()).expect("open state");
         let path = state.audit_path_for(Utc::now().date_naive());
-        
+
         fs::write(&path, "not json\n{\"project\":\"p\"}\n").expect("write malformed");
-        
-        // Only valid JSON lines should be returned (though my simple test entry is incomplete, 
+
+        // Only valid JSON lines should be returned (though my simple test entry is incomplete,
         // AuditEntry requires more fields, so it might skip both if not valid).
         // Let's write one valid entry and one invalid.
         let entry = AuditEntry {
@@ -225,7 +225,7 @@ mod tests {
             timestamp: Utc::now(),
         };
         state.log_audit(&entry).expect("log valid");
-        
+
         let recent = state.recent_audit(10).expect("recent");
         assert_eq!(recent.len(), 1);
         assert_eq!(recent[0].project, "valid");

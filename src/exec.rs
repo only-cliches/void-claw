@@ -137,16 +137,21 @@ mod tests {
     #[test]
     fn resolve_env_handles_profiles() {
         let mut config = Config::default();
-        config.env_profiles.insert("test".to_string(), crate::config::EnvProfile {
-            vars: [("KEY".to_string(), "VAL".to_string())].into_iter().collect(),
-        });
-        
+        config.env_profiles.insert(
+            "test".to_string(),
+            crate::config::EnvProfile {
+                vars: [("KEY".to_string(), "VAL".to_string())]
+                    .into_iter()
+                    .collect(),
+            },
+        );
+
         let env = resolve_env(Some("test"), &config);
         assert_eq!(env.get("KEY"), Some(&"VAL".to_string()));
-        
+
         let env_none = resolve_env(None, &config);
         assert!(env_none.is_empty());
-        
+
         let env_missing = resolve_env(Some("missing"), &config);
         assert!(env_missing.is_empty());
     }
@@ -155,12 +160,21 @@ mod tests {
     fn check_denied_blocks_metacharacters() {
         let proj = ProjectConfig::default();
         let config = Config::default();
-        
-        assert!(check_denied(&["ls".into(), "file; cat /etc/shadow".into()], &proj, &config).is_some());
+
+        assert!(
+            check_denied(
+                &["ls".into(), "file; cat /etc/shadow".into()],
+                &proj,
+                &config
+            )
+            .is_some()
+        );
         assert!(check_denied(&["ls".into(), "file && rm -rf /".into()], &proj, &config).is_some());
-        assert!(check_denied(&["ls".into(), "file | grep secret".into()], &proj, &config).is_some());
+        assert!(
+            check_denied(&["ls".into(), "file | grep secret".into()], &proj, &config).is_some()
+        );
         assert!(check_denied(&["ls".into(), "file \n /".into()], &proj, &config).is_some());
-        
+
         // Clean
         assert!(check_denied(&["ls".into(), "clean-file".into()], &proj, &config).is_none());
     }
@@ -170,10 +184,10 @@ mod tests {
         let mut proj = ProjectConfig::default();
         let mut config = Config::default();
         config.defaults.hostdo.denied_executables = vec!["cat".to_string()];
-        
+
         assert!(check_denied(&["cat".into(), "secret.txt".into()], &proj, &config).is_some());
         assert!(check_denied(&["ls".into(), "file.txt".into()], &proj, &config).is_none());
-        
+
         // Per-project deny
         proj.hostdo = Some(ProjectHostdo {
             denied_executables: Some(vec!["ls".to_string()]),
