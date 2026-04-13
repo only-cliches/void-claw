@@ -292,4 +292,122 @@ policy = "allow"
         assert_eq!(rules.hostdo.commands[1].cwd, "/tmp/ws/project/subdir");
         assert_eq!(rules.hostdo.commands[2].cwd, "/absolute/path");
     }
+
+    #[test]
+    fn find_hostdo_command_exact_match() {
+        let rules = ComposedRules {
+            hostdo: HostdoRules {
+                default_policy: ApprovalMode::Prompt,
+                commands: vec![
+                    RuleCommand {
+                        argv: vec!["cargo".into(), "test".into()],
+                        cwd: "/tmp".into(), // Cwd irrelevant for matching
+                        approval_mode: ApprovalMode::Auto,
+                        ..Default::default()
+                    },
+                    RuleCommand {
+                        argv: vec!["npm".into(), "install".into()],
+                        cwd: "/app".into(),
+                        approval_mode: ApprovalMode::Prompt,
+                        ..Default::default()
+                    },
+                ],
+                command_aliases: Default::default(),
+            },
+            ..Default::default()
+        };
+
+        let matched = rules.find_hostdo_command(&["cargo".into(), "test".into()]);
+        assert!(matched.is_some());
+        assert_eq!(matched.unwrap().approval_mode, ApprovalMode::Auto);
+
+        let matched_npm = rules.find_hostdo_command(&["npm".into(), "install".into()]);
+        assert!(matched_npm.is_some());
+        assert_eq!(matched_npm.unwrap().approval_mode, ApprovalMode::Prompt);
+    }
+
+    #[test]
+    fn find_hostdo_command_no_partial_match() {
+        let rules = ComposedRules {
+            hostdo: HostdoRules {
+                default_policy: ApprovalMode::Prompt,
+                commands: vec![
+                    RuleCommand {
+                        argv: vec!["cargo".into(), "test".into()],
+                        cwd: "/tmp".into(),
+                        approval_mode: ApprovalMode::Auto,
+                        ..Default::default()
+                    },
+                ],
+                command_aliases: Default::default(),
+            },
+            ..Default::default()
+        };
+
+        // Partial match (subset)
+        let matched = rules.find_hostdo_command(&["cargo".into()]);
+        assert!(matched.is_none());
+
+        // Partial match (superset)
+        let matched = rules.find_hostdo_command(&["cargo".into(), "test".into(), "--verbose".into()]);
+        assert!(matched.is_none());
+    }
+
+    #[test]
+    fn find_hostdo_command_respects_argument_order() {
+        let rules = ComposedRules {
+            hostdo: HostdoRules {
+                default_policy: ApprovalMode::Prompt,
+                commands: vec![
+                    RuleCommand {
+                        argv: vec!["arg1".into(), "arg2".into()],
+                        cwd: "/tmp".into(),
+                        approval_mode: ApprovalMode::Auto,
+                        ..Default::default()
+                    },
+                ],
+                command_aliases: Default::default(),
+            },
+            ..Default::default()
+        };
+
+        let matched = rules.find_hostdo_command(&["arg2".into(), "arg1".into()]); // Different order
+        assert!(matched.is_none());
+
+        let matched = rules.find_hostdo_command(&["arg1".into(), "arg2".into()]); // Correct order
+        assert!(matched.is_some());
+    }
+
+    #[test]
+    fn find_hostdo_command_empty_argv() {
+        let rules = ComposedRules {
+            hostdo: HostdoRules {
+                default_policy: ApprovalMode::Prompt,
+                commands: vec![
+                    RuleCommand {
+                        argv: vec![], // Empty argv rule
+                        cwd: "/tmp".into(),
+                        approval_mode: ApprovalMode::Deny,
+                        ..Default::default()
+                    },
+                    RuleCommand {
+                        argv: vec!["ls".into()],
+                        cwd: "/".into(),
+                        approval_mode: ApprovalMode::Auto,
+                        ..Default::default()
+                    },
+                ],
+                command_aliases: Default::default(),
+            },
+            ..Default::default()
+        };
+
+        let matched = rules.find_hostdo_command(&vec![]);
+        assert!(matched.is_some());
+        assert_eq!(matched.unwrap().approval_mode, ApprovalMode::Deny);
+
+        let matched = rules.find_hostdo_command(&vec!["ls".into()]);
+        assert!(matched.is_some());
+        assert_eq!(matched.unwrap().approval_mode, ApprovalMode::Auto);
+    }
 }

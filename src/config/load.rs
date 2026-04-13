@@ -1,6 +1,8 @@
 use anyhow::{Context, Result};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use toml_edit::{DocumentMut, value};
+use tracing::instrument;
 
 use crate::config::{
     AgentKind, AliasValue, Config, ContainerMount, DefaultsConfig, ProjectConfig, SyncMode,
@@ -12,6 +14,7 @@ use crate::config::{
 /// Load and compose rules for a specific project (global + that project's
 /// zero-rules.toml). Called at request time so edits take effect without
 /// restart.
+#[instrument(skip(config))]
 pub fn load_composed_rules_for_project(
     config: &Config,
     project_name: Option<&str>,
@@ -58,6 +61,7 @@ pub fn load_composed_rules_for_project(
 
 // ── Loading ──────────────────────────────────────────────────────────────────
 
+#[instrument(skip(path))]
 pub fn load(path: &Path) -> Result<Config> {
     let raw = std::fs::read_to_string(path)
         .with_context(|| format!("reading config: {}", path.display()))?;
@@ -67,6 +71,7 @@ pub fn load(path: &Path) -> Result<Config> {
     validate_docker_dir(&config, path)?;
     resolve_container_profiles(&mut config)?;
     validate(&config)?;
+    ensure_logging_instance_id(path, &raw, &mut config)?;
     Ok(config)
 }
 
@@ -183,6 +188,7 @@ fn resolve_container_profiles(config: &mut Config) -> Result<()> {
     Ok(())
 }
 
+#[instrument(skip(config, config_path))]
 fn validate_docker_dir(config: &Config, config_path: &Path) -> Result<()> {
     anyhow::ensure!(
         !config.docker_dir.as_os_str().is_empty(),
@@ -198,7 +204,7 @@ fn validate_docker_dir(config: &Config, config_path: &Path) -> Result<()> {
     Ok(())
 }
 
-fn merge_unique_strings(
+pub(crate) fn merge_unique_strings(
     base: &[String],
     profile: &[String],
     override_items: &[String],
@@ -212,7 +218,7 @@ fn merge_unique_strings(
     out
 }
 
-fn merge_mounts(
+pub(crate) fn merge_mounts(
     base: &[ContainerMount],
     profile: &[ContainerMount],
     override_items: &[ContainerMount],
@@ -350,6 +356,31 @@ fn validate(config: &Config) -> Result<()> {
     Ok(())
 }
 
+fn ensure_logging_instance_id(path: &Path, raw: &str, config: &mut Config) -> Result<()> {
+    let current = config
+        .logging
+        .instance_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string);
+
+    if let Some(instance_id) = current {
+        config.logging.instance_id = Some(instance_id);
+        return Ok(());
+    }
+
+    let instance_id = uuid::Uuid::new_v4().to_string();
+    let mut doc: DocumentMut = raw
+        .parse()
+        .with_context(|| format!("parsing config document: {}", path.display()))?;
+    doc["logging"]["instance_id"] = value(instance_id.clone());
+    std::fs::write(path, doc.to_string())
+        .with_context(|| format!("writing config: {}", path.display()))?;
+    config.logging.instance_id = Some(instance_id);
+    Ok(())
+}
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 /// Expand `~` at the start of a path.
@@ -368,6 +399,7 @@ pub fn expand_path(path: &Path) -> Result<PathBuf> {
 /// Effective workspace path for a project (managed workspace copy).
 ///
 /// For direct-mount projects, use `effective_mount_source_path`.
+#[instrument(skip(proj, ws))]
 pub fn effective_workspace_path(proj: &ProjectConfig, ws: &WorkspaceSection) -> PathBuf {
     proj.workspace_path
         .clone()
@@ -375,6 +407,7 @@ pub fn effective_workspace_path(proj: &ProjectConfig, ws: &WorkspaceSection) -> 
 }
 
 /// Host-side directory that should be mounted into the container at `mount_target`.
+#[instrument(skip(proj, ws, defaults))]
 pub fn effective_mount_source_path(
     proj: &ProjectConfig,
     ws: &WorkspaceSection,
@@ -387,6 +420,7 @@ pub fn effective_mount_source_path(
 }
 
 /// Effective sync mode for a project.
+#[instrument(skip(proj, defaults))]
 pub fn effective_sync_mode(proj: &ProjectConfig, defaults: &DefaultsConfig) -> SyncMode {
     proj.sync
         .as_ref()
@@ -395,6 +429,7 @@ pub fn effective_sync_mode(proj: &ProjectConfig, defaults: &DefaultsConfig) -> S
 }
 
 /// Combined exclude patterns (global + per-project config + per-project rules).
+#[instrument(skip(proj, defaults))]
 pub fn combined_excludes(proj: &ProjectConfig, defaults: &DefaultsConfig) -> Result<Vec<String>> {
     let mut patterns = defaults.sync.global_exclude_patterns.clone();
     patterns.extend(proj.exclude_patterns.iter().cloned());
@@ -406,6 +441,7 @@ pub fn combined_excludes(proj: &ProjectConfig, defaults: &DefaultsConfig) -> Res
 }
 
 /// Effective denied executables.
+#[instrument(skip(proj, defaults))]
 pub fn effective_denied_executables(
     proj: &ProjectConfig,
     defaults: &DefaultsConfig,
@@ -417,6 +453,7 @@ pub fn effective_denied_executables(
 }
 
 /// Effective denied argument fragments.
+#[instrument(skip(proj, defaults))]
 pub fn effective_denied_fragments(proj: &ProjectConfig, defaults: &DefaultsConfig) -> Vec<String> {
     proj.hostdo
         .as_ref()
@@ -426,6 +463,7 @@ pub fn effective_denied_fragments(proj: &ProjectConfig, defaults: &DefaultsConfi
 
 /// Effective hostdo command aliases for a project.
 /// Merge order (later wins): global defaults → per-project config → per-project rules.
+#[instrument(skip(proj, defaults))]
 pub fn effective_command_aliases(
     proj: &ProjectConfig,
     defaults: &DefaultsConfig,

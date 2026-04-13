@@ -8,7 +8,7 @@
 
 ![Agent Zero Demo showing launching an agent and the approval dialog.](https://github.com/only-cliches/agent-zero/blob/main/demo.gif?raw=true)
 
-AI coding agents are powerful, and by default, completely unconstrained. Give one your terminal and it has your machine: your files, your credentials, your network. Agent Zero enforces a zero-trust boundary around every agent session, running agents in isolated Docker containers with policy-enforced access to your code, your host, and the outside world. Nothing gets through without a rule that allows it.
+AI coding agents are powerful, and by default, completely unconstrained. Give one your terminal and it has your machine: your files, your credentials, and your network. Agent Zero enforces a zero-trust boundary around every agent session, running agents in isolated Docker containers with policy-enforced access to your code, your host, and the outside world. Nothing gets through without a rule that allows it.
 
 ## Key Features
 
@@ -18,6 +18,7 @@ AI coding agents are powerful, and by default, completely unconstrained. Give on
 * **Interactive Terminal UI (TUI)**: Manage everything from a single terminal interface. View active containers, inspect logs, review and action pending network and host requests, and drop into a live terminal session when needed.
 * **Flexible Workspace Syncing**: Agent Zero creates a managed mirror of your project inside the container. Choose your sync strategy: push changes back automatically, pull host changes into the workspace, sync bidirectionally, or keep the workspace completely isolated.
 * **Ready-to-Use Agent Profiles**: First-class support for Claude Code, OpenAI Codex, Google Gemini CLI, and Opencode, including automatic auth state mounting so agents don't need to re-authenticate on every launch.
+* **OpenTelemetry Logging**: Export hostdo, proxy, and startup traces to your collector with configurable OTLP settings, while keeping local rotating logs on disk.
 
 ## Getting Started
 
@@ -89,6 +90,30 @@ Lives in your project repository. Defines what an agent is allowed to do:
 
 * **`[hostdo]`**: Which host commands the agent may request. Commands can be set to `auto` (always run), `deny` (always block), or `prompt` (ask you each time). Aliases let you map simple agent-facing commands to complex host-side ones.
 * **`[network]`**: Which domains the agent may reach. Common developer infrastructure (GitHub, npm, PyPI, crates.io) is pre-approved. Everything else defaults to `prompt` and you decide at runtime, with the option to persist your decision back to the policy file automatically.
+
+## Logging
+
+Agent Zero writes daily rotating logs to the directory configured under `[logging].log_dir` in `agent-zero.toml`. The default is `~/.local/share/agent-zero`, which also holds runtime state and the local CA material used by the proxy.
+
+On first startup, Agent Zero also generates a stable `instance_id` and writes it back into `[logging]`. That value is exported as `service.instance.id` so a collector can distinguish logs and traces from different installations.
+
+If you want OpenTelemetry export, enable `[logging.otlp]` in `agent-zero.toml` or your own config:
+
+* **Endpoint**: OTLP collector URL, such as `http://localhost:4317` for gRPC or `http://localhost:4318/v1/traces` for HTTP/protobuf.
+* **Protocol**: `grpc` or `http`.
+* **Level**: `approvals` for prompt-related spans, `all` for the full hostdo/proxy flow, or `none` to disable export.
+
+Example:
+
+```toml
+[logging]
+log_dir = "~/.local/share/agent-zero"
+
+[logging.otlp]
+endpoint = "http://localhost:4317"
+protocol = "grpc"
+level = "approvals"
+```
 
 ## File Synchronization Modes
 

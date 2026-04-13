@@ -14,8 +14,9 @@ use tracing::Instrument;
 use crate::config::{self, ApprovalMode, AuditExportLevel};
 use crate::exec::{self, CommandMatch, DenyReason};
 use crate::server::{
-    ApprovalDecision, ErrorResponse, ExecRequest, ExecResponse, PendingItem, ServerState, deny,
-    record_audit, require_session_identity, resolve_exec_argv_aliases, resolve_host_cwd,
+    ApprovalDecision, ErrorResponse, ExecRequest, ExecResponse, PendingItem, ServerState,
+    deny as server_deny, record_audit, require_session_identity, resolve_exec_argv_aliases,
+    resolve_host_cwd,
 };
 use crate::state::{AuditEntry, DecisionKind};
 
@@ -46,7 +47,7 @@ pub(super) async fn exec_handler(
     let proj = match cfg.projects.iter().find(|p| p.name == identity_project) {
         Some(p) => p,
         None => {
-            return deny(format!("unknown project '{}'", identity_project));
+            return server_deny(format!("unknown project '{}'", identity_project));
         }
     };
     // Extract path strings before alias resolution (aliases may reference them).
@@ -61,7 +62,7 @@ pub(super) async fn exec_handler(
         &workspace_path_buf,
     ) {
         Ok(v) => v,
-        Err(reason) => return deny(reason),
+        Err(reason) => return server_deny(reason),
     };
     let exec_argv = resolved.argv;
     let workspace_path = workspace_path_buf.display().to_string();
@@ -98,7 +99,7 @@ pub(super) async fn exec_handler(
             },
         )
         .await;
-        return deny(reason.to_string());
+        return server_deny(reason.to_string());
     }
 
     // Load composed rules from zero-rules.toml files (global + all projects).
@@ -161,7 +162,7 @@ pub(super) async fn exec_handler(
             },
         )
         .await;
-        return deny(reason);
+        return server_deny(reason);
     }
 
     let (env_profile, timeout_secs) = match &cmd_match {
@@ -282,7 +283,7 @@ pub(super) async fn exec_handler(
     };
 
     if state.pending_tx.send(pending).await.is_err() {
-        return deny("manager is shutting down".to_string());
+        return server_deny("manager is shutting down".to_string());
     }
 
     // Await the developer decision (and execution) under the span.
@@ -310,7 +311,7 @@ pub(super) async fn exec_handler(
                     },
                 )
                 .await;
-                return deny("approval timed out (5 minutes)".to_string());
+                return server_deny("approval timed out (5 minutes)".to_string());
             }
         };
 
@@ -333,7 +334,7 @@ pub(super) async fn exec_handler(
                     },
                 )
                 .await;
-                deny("denied by developer".to_string())
+                server_deny("denied by developer".to_string())
             }
             ApprovalDecision::Approve { remember } => {
                 match exec::run_command(&exec_argv, &host_cwd, &env_vars, timeout_secs).await {

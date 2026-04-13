@@ -306,12 +306,6 @@ policy = "auto"
 
 [[network.rules]]
 methods = ["*"]
-host = "whatever.com"
-path_prefix = "/"
-policy = "auto"
-
-[[network.rules]]
-methods = ["*"]
 host = "http-intake.logs.us5.datadoghq.com"
 path_prefix = "/"
 policy = "deny"

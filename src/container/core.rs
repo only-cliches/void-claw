@@ -20,6 +20,7 @@ use tempfile::NamedTempFile;
 
 use crate::config::{ContainerMount, MountMode};
 use crate::container::helpers::{blend_toward_bg, luma_u8, xterm_256_index_to_rgb};
+use tracing::instrument;
 
 /// Live container session state and PTY plumbing for a launched container.
 pub struct ContainerSession {
@@ -204,6 +205,7 @@ impl ContainerSession {
     }
 }
 
+#[instrument(level = "trace", skip(url))]
 pub(crate) fn loopback_to_host_docker(url: &str) -> String {
     url.replace("127.0.0.1", "host.docker.internal")
         .replace("localhost", "host.docker.internal")
@@ -211,6 +213,7 @@ pub(crate) fn loopback_to_host_docker(url: &str) -> String {
 }
 
 /// Convert an arbitrary project or container name into a Docker-safe name.
+#[instrument(level = "trace", skip(input))]
 pub fn sanitize_docker_name(input: &str) -> String {
     let mut out = String::with_capacity(input.len());
     for ch in input.chars() {
@@ -358,6 +361,21 @@ mod tests {
         assert_eq!(sanitize_docker_name("my project"), "my-project");
         assert_eq!(sanitize_docker_name("my@proj!ect"), "my-proj-ect");
         assert_eq!(sanitize_docker_name(""), "container");
+    }
+
+    use uuid; // Add this use statement
+
+    #[test]
+    fn codex_home_args_mounts_correct_paths() {
+        let root = std::env::temp_dir().join(format!("agent-zero-codex-home-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&root).expect("create temp dir");
+        let mut args = Vec::new();
+        super::append_codex_home_args(&mut args, &root).expect("append codex args");
+
+        assert!(args.contains(&"-e".to_string()));
+        assert!(args.contains(&"CODEX_HOME=/home/ubuntu/.codex".to_string()));
+        assert!(args.contains(&"-v".to_string()));
+        assert!(args.contains(&format!("{}/.codex:/home/ubuntu/.codex:rw", root.display())));
     }
 }
 

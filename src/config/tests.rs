@@ -1,7 +1,8 @@
 #[cfg(test)]
 mod tests {
     use crate::config::{
-        Config, DefaultsConfig, combined_excludes, load, load_composed_rules_for_project,
+        Config, ContainerMount, DefaultsConfig, MountMode, combined_excludes, load,
+        load_composed_rules_for_project, merge_mounts, merge_unique_strings,
     };
     use crate::rules::{ApprovalMode, NetworkPolicy};
     use std::fs;
@@ -82,6 +83,40 @@ sidebar_width = 28
         fs::write(&cfg_path, raw).expect("write config");
         let cfg = load(&cfg_path).expect("config should load");
         assert_eq!(cfg.defaults.ui.sidebar_width, 28);
+    }
+
+    #[test]
+    fn load_persists_logging_instance_id() {
+        let root = unique_temp_dir("instance-id-persist");
+        let cfg_path = root.join("agent-zero.toml");
+        let docker_dir = root.join("docker-root");
+        fs::create_dir_all(&docker_dir).expect("create docker dir");
+        let raw = format!(
+            r#"
+docker_dir = "{}"
+
+[manager]
+global_rules_file = "{}"
+
+[workspace]
+root = "{}"
+"#,
+            docker_dir.display(),
+            root.join("global-rules.toml").display(),
+            root.join("workspace").display()
+        );
+        fs::write(&cfg_path, raw).expect("write config");
+
+        let cfg = load(&cfg_path).expect("config should load");
+        let instance_id = cfg
+            .logging
+            .instance_id
+            .as_deref()
+            .expect("instance id should be generated");
+
+        let contents = fs::read_to_string(&cfg_path).expect("read config");
+        let parsed: toml::Value = toml::from_str(&contents).expect("parse config");
+        assert_eq!(parsed["logging"]["instance_id"].as_str(), Some(instance_id));
     }
 
     #[test]
@@ -411,5 +446,152 @@ exclude_patterns = ["node_modules", "dist/**"]
         assert!(excludes.iter().any(|p| p == "node_modules"));
         assert!(excludes.iter().any(|p| p == "dist/**"));
         assert!(excludes.iter().any(|p| p == ".git"));
+    }
+
+    // New tests for merge_unique_strings
+    #[test]
+    fn merge_unique_strings_handles_empty_inputs() {
+        let base: Vec<String> = vec![];
+        let profile: Vec<String> = vec![];
+        let override_items: Vec<String> = vec![];
+        let result = merge_unique_strings(&base, &profile, &override_items);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn merge_unique_strings_merges_all_unique_items() {
+        let base = vec!["a".to_string(), "b".to_string()];
+        let profile = vec!["c".to_string(), "d".to_string()];
+        let override_items = vec!["e".to_string(), "f".to_string()];
+        let result = merge_unique_strings(&base, &profile, &override_items);
+        assert_eq!(result.len(), 6);
+        assert!(result.contains(&"a".to_string()));
+        assert!(result.contains(&"f".to_string()));
+    }
+
+    #[test]
+    fn merge_unique_strings_handles_duplicates() {
+        let base = vec!["a".to_string(), "b".to_string()];
+        let profile = vec!["b".to_string(), "c".to_string()];
+        let override_items = vec!["c".to_string(), "a".to_string(), "d".to_string()];
+        let result = merge_unique_strings(&base, &profile, &override_items);
+        assert_eq!(result.len(), 4);
+        assert!(result.contains(&"a".to_string()));
+        assert!(result.contains(&"b".to_string()));
+        assert!(result.contains(&"c".to_string()));
+        assert!(result.contains(&"d".to_string()));
+    }
+
+    #[test]
+    fn merge_unique_strings_preserves_order_of_first_appearance() {
+        let base = vec!["a".to_string(), "b".to_string()];
+        let profile = vec!["c".to_string(), "a".to_string()]; // 'a' appears again
+        let override_items = vec!["d".to_string(), "b".to_string()]; // 'b' appears again
+        let result = merge_unique_strings(&base, &profile, &override_items);
+        assert_eq!(
+            result,
+            vec![
+                "a".to_string(),
+                "b".to_string(),
+                "c".to_string(),
+                "d".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn merge_mounts_handles_empty_inputs() {
+        let base: Vec<ContainerMount> = vec![];
+        let profile: Vec<ContainerMount> = vec![];
+        let override_items: Vec<ContainerMount> = vec![];
+        let result = merge_mounts(&base, &profile, &override_items);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn merge_mounts_merges_all_unique_items() {
+        let m1 = ContainerMount {
+            host: "h1".into(),
+            container: "c1".into(),
+            mode: MountMode::Rw,
+        };
+        let m2 = ContainerMount {
+            host: "h2".into(),
+            container: "c2".into(),
+            mode: MountMode::Ro,
+        };
+        let m3 = ContainerMount {
+            host: "h3".into(),
+            container: "c3".into(),
+            mode: MountMode::Rw,
+        };
+
+        let base = vec![m1.clone()];
+        let profile = vec![m2.clone()];
+        let override_items = vec![m3.clone()];
+        let result = merge_mounts(&base, &profile, &override_items);
+        assert_eq!(result.len(), 3);
+        assert!(result.contains(&m1));
+        assert!(result.contains(&m2));
+        assert!(result.contains(&m3));
+    }
+
+    #[test]
+    fn merge_mounts_handles_duplicates() {
+        let m1 = ContainerMount {
+            host: "h1".into(),
+            container: "c1".into(),
+            mode: MountMode::Rw,
+        };
+        let m2 = ContainerMount {
+            host: "h2".into(),
+            container: "c2".into(),
+            mode: MountMode::Ro,
+        };
+        let m3_diff_mode = ContainerMount {
+            host: "h1".into(),
+            container: "c1".into(),
+            mode: MountMode::Ro,
+        }; // Same paths, different mode
+
+        let base = vec![m1.clone()];
+        let profile = vec![m1.clone(), m2.clone()]; // m1 duplicated
+        let override_items = vec![m2.clone(), m3_diff_mode.clone()]; // m2 duplicated, m3_diff_mode is new
+
+        let result = merge_mounts(&base, &profile, &override_items);
+        assert_eq!(result.len(), 3);
+        assert!(result.contains(&m1));
+        assert!(result.contains(&m2));
+        assert!(result.contains(&m3_diff_mode));
+        assert_eq!(result, vec![m1, m2, m3_diff_mode]);
+    }
+
+    #[test]
+    fn merge_mounts_with_different_paths_are_unique() {
+        let m1 = ContainerMount {
+            host: "h1".into(),
+            container: "c1".into(),
+            mode: MountMode::Rw,
+        };
+        let m2 = ContainerMount {
+            host: "h1".into(),
+            container: "c2".into(),
+            mode: MountMode::Rw,
+        }; // Same host, diff container
+        let m3 = ContainerMount {
+            host: "h2".into(),
+            container: "c1".into(),
+            mode: MountMode::Rw,
+        }; // Diff host, same container
+
+        let base = vec![m1.clone()];
+        let profile = vec![m2.clone()];
+        let override_items = vec![m3.clone()];
+
+        let result = merge_mounts(&base, &profile, &override_items);
+        assert_eq!(result.len(), 3);
+        assert!(result.contains(&m1));
+        assert!(result.contains(&m2));
+        assert!(result.contains(&m3));
     }
 }

@@ -133,7 +133,14 @@ strict_network = true
 
 [logging]
 # Directory for runtime state and logs.
+# This file stores:
+# - `agent-zero.log` (daily rotating text logs)
+# - runtime state used by the manager and proxy
 log_dir = "~/.local/share/agent-zero"
+
+# Stable instance id written by agent-zero on first startup.
+# This is exported as `service.instance.id` in OpenTelemetry.
+# instance_id = "generated-on-first-run"
 
 # Optional OpenTelemetry export.
 # Remove or leave commented out to disable.
@@ -153,6 +160,12 @@ log_dir = "~/.local/share/agent-zero"
 #   all        - every hostdo and proxy event
 #   approvals  - only events that required a developer prompt
 #   none       - disable OTel spans
+# level = "approvals"
+#
+# Example collector config:
+# [logging.otlp]
+# endpoint = "http://localhost:4317"
+# protocol = "grpc"
 # level = "approvals"
 
 # ---------------------------------------------------------------------------

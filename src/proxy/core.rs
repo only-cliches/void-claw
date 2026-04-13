@@ -29,6 +29,7 @@ use crate::proxy::http::{
 };
 use crate::rules::NetworkPolicy;
 use crate::shared_config::SharedConfig;
+use tracing::instrument;
 
 /// A network request waiting on the TUI for an allow/deny decision.
 pub struct PendingNetworkItem {
@@ -146,6 +147,7 @@ impl Drop for ScopedProxyListener {
 
 // ── Entry point ───────────────────────────────────────────────────────────────
 
+#[instrument(skip(state))]
 pub async fn run(state: ProxyState, addr: String) -> Result<()> {
     let listener = TcpListener::bind(&addr)
         .await
@@ -153,6 +155,7 @@ pub async fn run(state: ProxyState, addr: String) -> Result<()> {
     run_with_listener(state, listener).await
 }
 
+#[instrument(skip(state, listener))]
 async fn run_with_listener(state: ProxyState, listener: TcpListener) -> Result<()> {
     loop {
         let (stream, _peer) = listener.accept().await?;
@@ -170,6 +173,7 @@ async fn run_with_listener(state: ProxyState, listener: TcpListener) -> Result<(
 }
 
 /// Start a per-container proxy listener bound to the supplied host/port.
+#[instrument(skip(state))]
 pub fn spawn_scoped_listener(
     state: &ProxyState,
     bind_host: &str,

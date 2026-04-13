@@ -11,6 +11,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, atomic::AtomicBool};
 use std::time::Instant;
 use tracing::info;
+use tracing::instrument;
 
 use crate::config::{AgentKind, ContainerDef};
 use crate::container::core::{
@@ -24,6 +25,13 @@ use crate::container::{ContainerSession, SessionEventProxy, compose_no_proxy, re
 
 /// Launch `docker run` for a container definition and wire it to a PTY-backed
 /// terminal session.
+#[instrument(skip(
+    ctr,
+    workspace_path,
+    codex_home_host_path,
+    gemini_home_host_path,
+    scoped_proxy
+))]
 pub fn spawn(
     ctr: &ContainerDef,
     project_name: &str,

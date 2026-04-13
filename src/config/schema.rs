@@ -137,7 +137,7 @@ pub(crate) fn default_mount_target() -> PathBuf {
     PathBuf::from("/workspace")
 }
 
-#[derive(Debug, Deserialize, Serialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
 pub struct ContainerMount {
     /// Host-side source path (supports `~` expansion).
     pub host: PathBuf,
@@ -227,6 +227,10 @@ pub struct LoggingConfig {
     /// Directory for runtime logs and local runtime state files.
     #[serde(default = "default_log_dir")]
     pub log_dir: PathBuf,
+    /// Stable instance identifier persisted into `agent-zero.toml`.
+    /// Used as `service.instance.id` in OpenTelemetry exports.
+    #[serde(default)]
+    pub instance_id: Option<String>,
     /// Optional OTLP export configuration. Absent = no OTel export.
     pub otlp: Option<OtlpConfig>,
 }
@@ -235,6 +239,7 @@ impl Default for LoggingConfig {
     fn default() -> Self {
         Self {
             log_dir: default_log_dir(),
+            instance_id: None,
             otlp: None,
         }
     }

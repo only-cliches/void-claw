@@ -6,6 +6,7 @@
 use anyhow::Result;
 use opentelemetry::{KeyValue, trace::TracerProvider as _};
 use opentelemetry_sdk::{Resource, runtime, trace::TracerProvider};
+use tracing::info;
 use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
 
 use crate::config::{Config, OtlpProtocol};
@@ -38,6 +39,7 @@ pub fn init(config: &Config) -> Result<TelemetryHandle> {
     let fmt_layer = tracing_subscriber::fmt::layer()
         .with_writer(log_writer)
         .with_ansi(false);
+    let instance_id = config.logging.instance_id.as_deref().unwrap_or("unknown");
 
     if let Some(otlp_cfg) = &config.logging.otlp {
         let exporter = build_exporter(otlp_cfg)?;
@@ -45,6 +47,7 @@ pub fn init(config: &Config) -> Result<TelemetryHandle> {
         let hostname = machine_hostname();
         let resource = Resource::new(vec![
             KeyValue::new("service.name", "agent-zero"),
+            KeyValue::new("service.instance.id", instance_id.to_string()),
             KeyValue::new("host.name", hostname),
         ]);
 
@@ -66,15 +69,33 @@ pub fn init(config: &Config) -> Result<TelemetryHandle> {
             .with(otel_layer)
             .init();
 
+        info!(
+            log_dir = %config.logging.log_dir.display(),
+            instance_id = %instance_id,
+            otlp_enabled = true,
+            endpoint = %otlp_cfg.endpoint,
+            protocol = ?otlp_cfg.protocol,
+            level = ?otlp_cfg.level,
+            "initialized tracing"
+        );
+
         Ok(TelemetryHandle {
             provider: Some(provider),
             _log_guard: log_guard,
         })
     } else {
+        info!("OpenTelemetry export disabled");
         tracing_subscriber::registry()
             .with(env_filter)
             .with(fmt_layer)
             .init();
+
+        info!(
+            log_dir = %config.logging.log_dir.display(),
+            instance_id = %instance_id,
+            otlp_enabled = false,
+            "initialized tracing"
+        );
 
         Ok(TelemetryHandle {
             provider: None,

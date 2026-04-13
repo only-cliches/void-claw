@@ -12,6 +12,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::sync::{mpsc, oneshot};
+use tracing::instrument;
 
 use crate::config::AliasValue;
 use crate::shared_config::SharedConfig;
@@ -140,6 +141,7 @@ pub enum ContainerStopDecision {
 // NOTE: hostdo commands execute on the developer machine.
 // They must not inherit the managed network proxy environment.
 
+#[instrument(skip(server_state, listener))]
 pub async fn run_with_listener(
     server_state: ServerState,
     listener: tokio::net::TcpListener,
@@ -346,8 +348,18 @@ pub(super) fn resolve_exec_argv_aliases(
 mod tests {
     use super::{resolve_exec_argv_aliases, resolve_host_cwd};
     use crate::config::AliasValue;
+    use crate::server::SessionRegistry;
+    use crate::shared_config::SharedConfig;
+    use crate::state::StateManager;
+    use axum::{
+        http::{HeaderMap, StatusCode},
+        response::IntoResponse,
+    };
     use std::collections::HashMap;
-    use std::path::{Path, PathBuf};
+    use std::path::Path;
+    use std::path::PathBuf;
+    use std::sync::Arc;
+    use tokio::sync::mpsc;
 
     #[test]
     fn resolve_host_cwd_maps_using_mount_target_header() {
@@ -445,5 +457,127 @@ mod tests {
         .expect("alias should resolve");
 
         assert_eq!(out.argv, vec!["hostdo", "b"]);
+    }
+
+    #[tokio::test]
+    async fn require_session_identity_missing_auth_header() {
+        let state = super::ServerState {
+            config: SharedConfig::new(Arc::new(crate::config::Config::default())),
+            state: StateManager::open(Path::new("/tmp")).unwrap(), // Use a real path for StateManager
+            pending_tx: mpsc::channel(1).0,
+            stop_tx: mpsc::channel(1).0,
+            audit_tx: mpsc::channel(1).0,
+            token: "test_token".to_string(),
+            sessions: SessionRegistry::default(),
+        };
+        let headers = HeaderMap::new();
+
+        let result = super::require_session_identity(&state, &headers);
+        assert!(result.is_err());
+        let response = result.unwrap_err().into_response();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn require_session_identity_invalid_auth_token() {
+        let state = super::ServerState {
+            config: SharedConfig::new(Arc::new(crate::config::Config::default())),
+            state: StateManager::open(Path::new("/tmp")).unwrap(),
+            pending_tx: mpsc::channel(1).0,
+            stop_tx: mpsc::channel(1).0,
+            audit_tx: mpsc::channel(1).0,
+            token: "valid_token".to_string(),
+            sessions: SessionRegistry::default(),
+        };
+        let mut headers = HeaderMap::new();
+        headers.insert("authorization", "Bearer invalid_token".parse().unwrap());
+        headers.insert(
+            "x-agent-zero-session-token",
+            "some_session_token".parse().unwrap(),
+        );
+
+        let result = super::require_session_identity(&state, &headers);
+        assert!(result.is_err());
+        let response = result.unwrap_err().into_response();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn require_session_identity_missing_session_token() {
+        let state = super::ServerState {
+            config: SharedConfig::new(Arc::new(crate::config::Config::default())),
+            state: StateManager::open(Path::new("/tmp")).unwrap(),
+            pending_tx: mpsc::channel(1).0,
+            stop_tx: mpsc::channel(1).0,
+            audit_tx: mpsc::channel(1).0,
+            token: "test_token".to_string(),
+            sessions: SessionRegistry::default(),
+        };
+        let mut headers = HeaderMap::new();
+        headers.insert("authorization", "Bearer test_token".parse().unwrap());
+
+        let result = super::require_session_identity(&state, &headers);
+        assert!(result.is_err());
+        let response = result.unwrap_err().into_response();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn require_session_identity_unknown_session_token() {
+        let state = super::ServerState {
+            config: SharedConfig::new(Arc::new(crate::config::Config::default())),
+            state: StateManager::open(Path::new("/tmp")).unwrap(),
+            pending_tx: mpsc::channel(1).0,
+            stop_tx: mpsc::channel(1).0,
+            audit_tx: mpsc::channel(1).0,
+            token: "test_token".to_string(),
+            sessions: SessionRegistry::default(),
+        };
+        let mut headers = HeaderMap::new();
+        headers.insert("authorization", "Bearer test_token".parse().unwrap());
+        headers.insert(
+            "x-agent-zero-session-token",
+            "unknown_session".parse().unwrap(),
+        );
+
+        let result = super::require_session_identity(&state, &headers);
+        assert!(result.is_err());
+        let response = result.unwrap_err().into_response();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn require_session_identity_valid_session() {
+        let sessions = SessionRegistry::default();
+        sessions.insert(
+            "valid_session".to_string(),
+            super::SessionIdentity {
+                project: "test_project".to_string(),
+                container_id: "test_container".to_string(),
+                mount_target: "/workspace".to_string(),
+            },
+        );
+        let state = super::ServerState {
+            config: SharedConfig::new(Arc::new(crate::config::Config::default())),
+            state: StateManager::open(Path::new("/tmp")).unwrap(),
+            pending_tx: mpsc::channel(1).0,
+            stop_tx: mpsc::channel(1).0,
+            audit_tx: mpsc::channel(1).0,
+            token: "test_token".to_string(),
+            sessions,
+        };
+        let mut headers = HeaderMap::new();
+        headers.insert("authorization", "Bearer test_token".parse().unwrap());
+        headers.insert(
+            "x-agent-zero-session-token",
+            "valid_session".parse().unwrap(),
+        );
+
+        let result = super::require_session_identity(&state, &headers);
+        assert!(result.is_ok());
+        let identity = result.unwrap();
+        assert_eq!(identity.project, "test_project");
+        assert_eq!(identity.container_id, "test_container");
+        assert_eq!(identity.mount_target, "/workspace");
     }
 }

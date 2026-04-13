@@ -3,6 +3,7 @@ use reqwest::blocking::Client;
 use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
+use tracing::instrument;
 
 const SAMPLE_CONFIG: &str = include_str!("../agent-zero.example.toml");
 const DOCKER_DIR_PLACEHOLDER: &str = "__AGENT_ZERO_DOCKER_DIR__";
@@ -19,6 +20,7 @@ const BUILTIN_DOCKERFILES: &[&str] = &[
 const HOSTDO_SCRIPT: &str = include_str!("../docker/scripts/hostdo.py");
 const KILLME_SCRIPT: &str = include_str!("../docker/scripts/killme.py");
 
+#[instrument(skip(output))]
 pub fn write_sample_config(output: &Path) -> Result<()> {
     if output.exists() {
         bail!(
@@ -52,6 +54,7 @@ fn resolve_init_docker_dir(cwd: &Path, home_config_root: &Path) -> PathBuf {
     }
 }
 
+#[instrument(skip(docker_dir))]
 pub fn ensure_docker_assets(docker_dir: &Path) -> Result<()> {
     let missing_dockerfiles = missing_builtin_dockerfiles(docker_dir);
     let missing_helper_scripts = missing_helper_scripts(docker_dir);

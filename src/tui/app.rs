@@ -9,6 +9,7 @@ mod launch;
 mod runtime;
 mod settings;
 
+#[allow(unused_imports)]
 pub(crate) use helpers::{
     compute_tree_file_map, diff_file_maps, docker_image_exists, encode_sgr_mouse,
     host_bind_is_loopback, is_scroll_mode_toggle_key, maybe_encode_sgr_mouse_for_session,
