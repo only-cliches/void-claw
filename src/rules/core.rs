@@ -187,8 +187,8 @@ impl ComposedRules {
                 command_aliases: HashMap::new(),
             },
             network_rules,
-            // Coder-style rules engine is explicit allowlist with deny-by-default.
-            network_default: NetworkPolicy::Deny,
+            // Coder-style rules engine is explicit allowlist with prompt-by-default.
+            network_default: NetworkPolicy::Prompt,
         }
     }
 
@@ -367,8 +367,8 @@ pub fn load(path: &Path) -> Result<ProjectRules> {
     }
     let raw = std::fs::read_to_string(path)
         .with_context(|| format!("reading void-rules.toml: {}", path.display()))?;
-    let parsed: ProjectRules =
-        toml::from_str(&raw).with_context(|| format!("parsing void-rules.toml: {}", path.display()))?;
+    let parsed: ProjectRules = toml::from_str(&raw)
+        .with_context(|| format!("parsing void-rules.toml: {}", path.display()))?;
     for entry in &parsed.network.allowlist {
         parse_network_allowlist_rule(entry).with_context(|| {
             format!(
@@ -457,7 +457,7 @@ const RULES_FILE_HEADER: &str = "\
 
 # ── Network (HTTP/HTTPS proxy policy) ────────────────────────────────────────
 #
-# Coder-style allowlist rules. If no rule matches, request is denied.
+# Coder-style allowlist rules. If no rule matches, request is prompted.
 # Rule format:
 #   method=GET,POST domain=api.example.com path=/v1/*,/health
 #

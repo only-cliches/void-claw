@@ -52,6 +52,9 @@ pub(crate) fn render_terminal(
             .constraints([Constraint::Length(1), Constraint::Min(0)])
             .split(area);
         render_terminal_fullscreen_header(frame, split[0], tab_title.as_str(), title_style);
+        if focused {
+            render_terminal_title_hint(frame, split[0], in_scroll_mode);
+        }
         split[1]
     } else {
         area
@@ -78,7 +81,7 @@ pub(crate) fn render_terminal(
     };
     frame.render_widget(block, content_area);
     if focused && !fullscreen {
-        render_terminal_title_hint(frame, content_area);
+        render_terminal_title_hint(frame, content_area, in_scroll_mode);
     }
 
     if let Some(session) = app.sessions.get_mut(session_idx) {

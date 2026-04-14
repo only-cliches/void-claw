@@ -1,8 +1,8 @@
 #[cfg(test)]
 mod tests {
     use crate::config::{
-        Config, ContainerMount, DefaultsConfig, MountMode, SyncMode,
-        effective_mount_source_path, effective_sync_mode, effective_workspace_path, load,
+        Config, ContainerMount, DefaultsConfig, MountMode, SyncMode, effective_mount_source_path,
+        effective_sync_mode, effective_workspace_path, image_tag_for_stem, load,
         load_composed_rules_for_workspace, merge_mounts, merge_unique_strings,
     };
     use crate::rules::{ApprovalMode, NetworkPolicy};
@@ -140,7 +140,7 @@ allowlist = ["domain=github.com"]
         let composed =
             load_composed_rules_for_workspace(&config, Some("project-a")).expect("compose rules");
         assert_eq!(composed.hostdo.default_policy, ApprovalMode::Deny);
-        assert_eq!(composed.network_default, NetworkPolicy::Deny);
+        assert_eq!(composed.network_default, NetworkPolicy::Prompt);
     }
 
     #[test]
@@ -153,7 +153,7 @@ allowlist = ["domain=github.com"]
 
         let composed = load_composed_rules_for_workspace(&config, None).expect("compose rules");
         assert_eq!(composed.hostdo.default_policy, ApprovalMode::Prompt);
-        assert_eq!(composed.network_default, NetworkPolicy::Deny);
+        assert_eq!(composed.network_default, NetworkPolicy::Prompt);
     }
 
     #[test]
@@ -194,7 +194,7 @@ allowlist = ["domain=github.com"]
         let composed =
             load_composed_rules_for_workspace(&config, Some("project-b")).expect("compose rules");
         assert_eq!(composed.hostdo.default_policy, ApprovalMode::Prompt);
-        assert_eq!(composed.network_default, NetworkPolicy::Deny);
+        assert_eq!(composed.network_default, NetworkPolicy::Prompt);
     }
 
     #[test]
@@ -606,5 +606,76 @@ mode = "direct"
         assert!(result.contains(&m1));
         assert!(result.contains(&m2));
         assert!(result.contains(&m3));
+    }
+
+    #[test]
+    fn load_rejects_legacy_containers_section() {
+        let root = unique_temp_dir("reject-legacy-containers");
+        let cfg_path = root.join("void-claw.toml");
+        let docker_dir = root.join("docker-root");
+        fs::create_dir_all(&docker_dir).expect("create docker dir");
+        let raw = format!(
+            r#"
+docker_dir = "{}"
+
+[workspace]
+
+[manager]
+global_rules_file = "{}"
+
+[[containers]]
+name = "legacy"
+profile = "codex"
+"#,
+            docker_dir.display(),
+            root.join("global-rules.toml").display()
+        );
+        fs::write(&cfg_path, raw).expect("write config");
+        let err = load(&cfg_path).expect_err("legacy containers must be rejected");
+        assert!(
+            err.to_string()
+                .contains("legacy [[containers]] is no longer supported"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn load_synthesizes_runtime_containers_from_profiles() {
+        let root = unique_temp_dir("profiles-synthesize-containers");
+        let cfg_path = root.join("void-claw.toml");
+        let docker_dir = root.join("docker-root");
+        fs::create_dir_all(&docker_dir).expect("create docker dir");
+        let raw = format!(
+            r#"
+docker_dir = "{}"
+
+[workspace]
+
+[manager]
+global_rules_file = "{}"
+
+[container_profiles.codex]
+image = "default"
+agent = "codex"
+"#,
+            docker_dir.display(),
+            root.join("global-rules.toml").display()
+        );
+        fs::write(&cfg_path, raw).expect("write config");
+        let cfg = load(&cfg_path).expect("config load should work");
+        assert_eq!(cfg.containers.len(), 1);
+        assert_eq!(cfg.containers[0].name, "codex");
+        assert_eq!(cfg.containers[0].image_stem, "default");
+        assert_eq!(cfg.containers[0].image, "void-claw-default:local");
+    }
+
+    #[test]
+    fn image_tag_for_stem_normalizes_non_alnum_chars() {
+        assert_eq!(image_tag_for_stem("default"), "void-claw-default:local");
+        assert_eq!(
+            image_tag_for_stem("Rust.Tools"),
+            "void-claw-rust.tools:local"
+        );
+        assert_eq!(image_tag_for_stem("a b"), "void-claw-a-b:local");
     }
 }

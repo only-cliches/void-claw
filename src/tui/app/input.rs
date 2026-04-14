@@ -270,6 +270,7 @@ impl App {
                 self.active_session = Some(si);
                 self.preview_session = Some(si);
                 self.scroll_mode = false;
+                self.scroll_mouse_passthrough = false;
                 self.terminal_scroll = 0;
                 self.focus = Focus::Terminal;
                 self.active_settings_project = None;
@@ -324,12 +325,12 @@ impl App {
                 if state.cursor == 2 {
                     state.project_type = state.project_type.prev();
                 }
-            },
+            }
             KeyCode::Right => {
                 if state.cursor == 2 {
                     state.project_type = state.project_type.next();
                 }
-            },
+            }
             KeyCode::Backspace => match state.cursor {
                 0 => {
                     state.name.pop();
@@ -368,16 +369,14 @@ impl App {
     }
 
     pub(crate) fn submit_new_project(&mut self) {
-        let Some((name, workspace_raw, project_type)) =
-            self.new_project.as_mut().map(|state| {
-                state.error = None;
-                (
-                    state.name.trim().to_string(),
-                    state.workspace_dir.trim().to_string(),
-                    state.project_type,
-                )
-            })
-        else {
+        let Some((name, workspace_raw, project_type)) = self.new_project.as_mut().map(|state| {
+            state.error = None;
+            (
+                state.name.trim().to_string(),
+                state.workspace_dir.trim().to_string(),
+                state.project_type,
+            )
+        }) else {
             return;
         };
 

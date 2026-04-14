@@ -105,28 +105,29 @@ fn build_test_app() -> App {
     std::fs::create_dir_all(&docker_dir).expect("create docker dir");
     std::fs::create_dir_all(&project_path).expect("create project path");
 
+    let cfg_path = root.join("void-claw.toml");
     let raw = format!(
         r#"
+docker_dir = "{}"
+
 [workspace]
 
 [manager]
 global_rules_file = "{}"
 
-docker_dir = "{}"
-
 [[workspaces]]
 name = "project-a"
 canonical_path = "{}"
 
-[[containers]]
-name = "test"
-image = "missing-image:latest"
+[container_profiles.test]
+image = "missing-image"
 "#,
-        global_rules_file.display(),
         docker_dir.display(),
+        global_rules_file.display(),
         project_path.display()
     );
-    let config: Config = toml::from_str(&raw).expect("parse minimal config");
+    std::fs::write(&cfg_path, raw).expect("write test config");
+    let config: Config = crate::config::load(&cfg_path).expect("load minimal config");
     let shared = SharedConfig::new(Arc::new(config));
 
     let (_exec_tx, exec_rx) = mpsc::channel(8);
@@ -162,31 +163,49 @@ fn key(code: KeyCode, modifiers: KeyModifiers) -> KeyEvent {
 #[test]
 fn build_commands_use_configured_docker_root() {
     let docker_dir = std::path::Path::new("/tmp/void-claw-docker-root");
-    let (base_cmd, agent_cmd) =
-        App::build_commands_for(docker_dir, "void-claw-codex:ubuntu-24.04");
+    let (build_cmd, base_cmd) = App::build_commands_for(docker_dir, "void-claw-codex:local");
 
     assert_eq!(
-        base_cmd,
+        build_cmd,
         vec![
             "build".to_string(),
             "-t".to_string(),
-            "my-agent:ubuntu-24.04".to_string(),
+            "void-claw-codex:local".to_string(),
             "-f".to_string(),
-            "/tmp/void-claw-docker-root/ubuntu-24.04.Dockerfile".to_string(),
+            "/tmp/void-claw-docker-root/codex.dockerfile".to_string(),
             "/tmp/void-claw-docker-root".to_string(),
         ]
     );
     assert_eq!(
-        agent_cmd,
+        base_cmd,
         Some(vec![
             "build".to_string(),
             "-t".to_string(),
-            "void-claw-codex:ubuntu-24.04".to_string(),
+            "void-claw-base:local".to_string(),
             "-f".to_string(),
-            "/tmp/void-claw-docker-root/codex/ubuntu-24.04.Dockerfile".to_string(),
+            "/tmp/void-claw-docker-root/void-claw-base.dockerfile".to_string(),
             "/tmp/void-claw-docker-root".to_string(),
         ])
     );
+}
+
+#[test]
+fn build_commands_for_base_image_do_not_nest_base_build() {
+    let docker_dir = std::path::Path::new("/tmp/void-claw-docker-root");
+    let (build_cmd, base_cmd) = App::build_commands_for(docker_dir, "void-claw-base:local");
+
+    assert_eq!(
+        build_cmd,
+        vec![
+            "build".to_string(),
+            "-t".to_string(),
+            "void-claw-base:local".to_string(),
+            "-f".to_string(),
+            "/tmp/void-claw-docker-root/void-claw-base.dockerfile".to_string(),
+            "/tmp/void-claw-docker-root".to_string(),
+        ]
+    );
+    assert_eq!(base_cmd, None);
 }
 
 #[test]

@@ -171,16 +171,24 @@ impl App {
             build_event_tx,
             build_task: None,
             should_quit: false,
+            passthrough_mode: false,
+            passthrough_exit_code_slot: None,
             log_fullscreen: false,
             terminal_fullscreen: false,
             ctrl_c_times: Vec::new(),
             last_terminal_esc: None,
             scroll_mode: false,
+            scroll_mouse_passthrough: false,
             terminal_scroll: 0,
             last_base_rules_poll: std::time::Instant::now(),
             watched_rules_stamps,
             pending_base_rules_internal_write: std::collections::HashMap::new(),
         })
+    }
+
+    pub fn enable_passthrough_mode(&mut self, exit_code_slot: Arc<std::sync::atomic::AtomicI32>) {
+        self.passthrough_mode = true;
+        self.passthrough_exit_code_slot = Some(exit_code_slot);
     }
 
     pub(crate) fn tick_base_rules_file_watch(&mut self) {
@@ -194,9 +202,8 @@ impl App {
         let watched_paths = Self::watched_rules_paths(&cfg);
         let now = std::time::Instant::now();
 
-        self.watched_rules_stamps.retain(|path, _| {
-            watched_paths.iter().any(|watched| watched == path)
-        });
+        self.watched_rules_stamps
+            .retain(|path, _| watched_paths.iter().any(|watched| watched == path));
         self.pending_base_rules_internal_write
             .retain(|path, pending| {
                 watched_paths.iter().any(|watched| watched == path) && now <= pending.expires_at
@@ -396,13 +403,13 @@ impl App {
                     || session.container_id.starts_with(normalized)
                     || normalized.starts_with(&session.container_id))
         }) else {
-                self.push_log(
-                    format!(
-                        "killme request for workspace '{}' could not find container {}",
-                        project, normalized
-                    ),
-                    true,
-                );
+            self.push_log(
+                format!(
+                    "killme request for workspace '{}' could not find container {}",
+                    project, normalized
+                ),
+                true,
+            );
             return ContainerStopDecision::NotFound;
         };
 

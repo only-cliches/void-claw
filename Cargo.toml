@@ -16,6 +16,10 @@ exclude = ["target/", ".git/", ".github/"]
 name = "void-claw"
 path = "src/main.rs"
 
+[[bin]]
+name = "void-claw-manager"
+path = "src/bin/void-claw-manager.rs"
+
 [dependencies]
 # CLI
 clap = { version = "4", features = ["derive"] }

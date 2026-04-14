@@ -14,7 +14,8 @@ pub struct Config {
     pub manager: ManagerConfig,
     pub workspace: WorkspaceSection,
     /// Directory containing the repository root used for Docker builds.
-    /// This is required at startup and is auto-populated by `void-claw --init`.
+    /// This is required at startup and is auto-populated by
+    /// `void-claw-manager --init`.
     #[serde(default)]
     pub docker_dir: PathBuf,
     #[serde(default)]
@@ -27,6 +28,8 @@ pub struct Config {
     pub workspaces: Vec<WorkspaceConfig>,
     #[serde(default)]
     pub container_profiles: HashMap<String, ContainerProfile>,
+    /// Internal resolved launch entries synthesized from `container_profiles`.
+    /// Config parsing rejects legacy `[[containers]]` entries.
     #[serde(default)]
     pub containers: Vec<ContainerDef>,
     #[serde(default)]
@@ -38,7 +41,8 @@ impl Default for Config {
         Self {
             manager: ManagerConfig::default(),
             workspace: WorkspaceSection::default(),
-            // `docker_dir` is expected to be populated during the `void-claw --init` process.
+            // `docker_dir` is expected to be populated during
+            // `void-claw-manager --init`.
             // An empty PathBuf here signifies an uninitialized state.
             docker_dir: PathBuf::new(),
             defaults: DefaultsConfig::default(),

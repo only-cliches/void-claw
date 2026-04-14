@@ -90,6 +90,19 @@ impl App {
             if !self.sessions[i].is_exited() {
                 continue;
             }
+            if self.passthrough_mode {
+                let exit_code =
+                    match crate::container::inspect_container_exit(&self.sessions[i].docker_name) {
+                        Ok(Some((code, _))) => code.unwrap_or(0),
+                        Ok(None) => 0,
+                        Err(_) => 1,
+                    };
+                if let Some(slot) = &self.passthrough_exit_code_slot {
+                    slot.store(exit_code, std::sync::atomic::Ordering::SeqCst);
+                }
+                self.should_quit = true;
+                continue;
+            }
             let exited_for = self.sessions[i].launched_at.elapsed();
             if !self.sessions[i].exit_reported {
                 self.sessions[i].exit_reported = true;
@@ -210,10 +223,26 @@ impl App {
                 self.scroll_mode = self.terminal_scroll > 0;
             }
             _ => {
-                // When the user is scrolling the outer viewport, don't forward clicks/drags into
-                // the PTY (it would be surprising and could trigger actions in the inner app).
+                // In scroll mode, only wheel gestures are reserved for outer viewport scrolling.
+                // Forward other mouse events when the inner app explicitly requested reporting.
                 if self.scroll_mode {
-                    return;
+                    match mouse.kind {
+                        MouseEventKind::Down(_) => {
+                            self.scroll_mouse_passthrough = true;
+                        }
+                        MouseEventKind::Up(_) => {
+                            if !self.scroll_mouse_passthrough {
+                                return;
+                            }
+                            self.scroll_mouse_passthrough = false;
+                        }
+                        MouseEventKind::Drag(_) | MouseEventKind::Moved => {
+                            if !self.scroll_mouse_passthrough {
+                                return;
+                            }
+                        }
+                        _ => {}
+                    }
                 }
                 if let Some(bytes) = maybe_encode_sgr_mouse_for_session(session, mouse) {
                     session.send_input(bytes);

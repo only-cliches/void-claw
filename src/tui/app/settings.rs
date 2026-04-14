@@ -153,8 +153,10 @@ impl App {
                 };
                 self.config.set(std::sync::Arc::new(new_config));
                 self.refresh_projects_cache();
-                self.pending_exec.retain(|item| item.project != state.workspace_name);
-                self.pending_stop.retain(|item| item.project != state.workspace_name);
+                self.pending_exec
+                    .retain(|item| item.project != state.workspace_name);
+                self.pending_stop
+                    .retain(|item| item.project != state.workspace_name);
                 self.pending_net
                     .retain(|item| item.source_project.as_deref() != Some(&state.workspace_name));
                 self.active_settings_project = None;
@@ -163,7 +165,10 @@ impl App {
                 let items = self.sidebar_items();
                 self.sidebar_idx = Self::first_selectable_sidebar_idx(&items);
                 self.update_sidebar_preview(&items);
-                self.push_log(format!("removed workspace '{}'", state.workspace_name), false);
+                self.push_log(
+                    format!("removed workspace '{}'", state.workspace_name),
+                    false,
+                );
             }
             Err(e) => {
                 self.push_log(
@@ -184,6 +189,9 @@ impl App {
         }
 
         if key.code == KeyCode::Char('g') && key.modifiers.contains(KeyModifiers::CONTROL) {
+            if self.passthrough_mode {
+                return;
+            }
             if self.terminal_fullscreen {
                 self.close_terminal_fullscreen();
             } else {
@@ -232,6 +240,7 @@ impl App {
 
         if is_scroll_mode_toggle_key(key) {
             self.scroll_mode = true;
+            self.scroll_mouse_passthrough = false;
             return;
         }
 
@@ -273,6 +282,7 @@ impl App {
 
     pub(crate) fn exit_scroll_mode(&mut self) {
         self.scroll_mode = false;
+        self.scroll_mouse_passthrough = false;
         self.terminal_scroll = 0;
     }
 
@@ -299,7 +309,7 @@ impl App {
     pub(crate) fn open_picker(&mut self) {
         let cfg = self.config.get();
         if cfg.containers.is_empty() {
-            self.push_log("no containers defined in config", true);
+            self.push_log("no container_profiles defined in config", true);
             return;
         }
         self.container_picker = Some(0);
@@ -400,20 +410,24 @@ impl App {
         let Some(ctr) = cfg.containers.get(ctr_idx) else {
             return;
         };
-        let (base_cmd, agent_cmd) = Self::build_commands_for(&cfg.docker_dir, &ctr.image);
+        let dockerfile_path = cfg
+            .docker_dir
+            .join(format!("{}.dockerfile", ctr.image_stem));
+        if !dockerfile_path.exists() {
+            self.push_log(
+                format!(
+                    "Looked for {} and didn't find it, please use a valid image name.",
+                    dockerfile_path.display()
+                ),
+                true,
+            );
+            self.focus = Focus::ImageBuild;
+            return;
+        }
+        let (build_cmd, maybe_base_cmd) = Self::build_commands_for(&cfg.docker_dir, &ctr.image);
 
         let requested = match self.build_cursor {
-            0 => match agent_cmd.as_ref() {
-                Some(agent_cmd) => Some((
-                    "build + launch",
-                    format!(
-                        "{} && {}",
-                        shell_command_for_docker_args(&base_cmd),
-                        shell_command_for_docker_args(agent_cmd)
-                    ),
-                )),
-                None => Some(("build + launch", shell_command_for_docker_args(&base_cmd))),
-            },
+            0 => Some(("build + launch", shell_command_for_docker_args(&build_cmd))),
             1 => {
                 self.build_container_idx = None;
                 self.build_project_idx = None;
@@ -423,9 +437,59 @@ impl App {
             _ => None,
         };
 
-        let Some((label, shell_command)) = requested else {
+        let Some((label, build_shell_command)) = requested else {
             return;
         };
+
+        let mut shell_commands: Vec<String> = Vec::new();
+        if let Some(base_cmd) = maybe_base_cmd {
+            let base_image = Self::BASE_IMAGE_TAG;
+            match docker_image_exists(base_image) {
+                Ok(true) => {}
+                Ok(false) => {
+                    let base_dockerfile = cfg.docker_dir.join("void-claw-base.dockerfile");
+                    if !base_dockerfile.exists() {
+                        self.push_log(
+                            format!(
+                                "Looked for {} and didn't find it, please run setup to restore the base dockerfile.",
+                                base_dockerfile.display()
+                            ),
+                            true,
+                        );
+                        self.focus = Focus::ImageBuild;
+                        return;
+                    }
+                    self.push_log(
+                        format!("base image '{base_image}' not found; building it first"),
+                        false,
+                    );
+                    shell_commands.push(shell_command_for_docker_args(&base_cmd));
+                }
+                Err(e) => {
+                    let base_dockerfile = cfg.docker_dir.join("void-claw-base.dockerfile");
+                    if !base_dockerfile.exists() {
+                        self.push_log(
+                            format!(
+                                "Looked for {} and didn't find it, please run setup to restore the base dockerfile.",
+                                base_dockerfile.display()
+                            ),
+                            true,
+                        );
+                        self.focus = Focus::ImageBuild;
+                        return;
+                    }
+                    self.push_log(
+                        format!(
+                            "warning: failed to inspect docker image '{base_image}': {e}; attempting base build"
+                        ),
+                        true,
+                    );
+                    shell_commands.push(shell_command_for_docker_args(&base_cmd));
+                }
+            }
+        }
+        shell_commands.push(build_shell_command);
+        let shell_command = shell_commands.join(" && ");
 
         self.build_project_idx = self.selected_project_idx();
         let Some(launch_project_idx) = self.build_project_idx else {

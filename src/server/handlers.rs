@@ -513,13 +513,9 @@ mod tests {
             Some(PathBuf::from("/workspace/path/subdir"))
         );
 
-        let ws_out = resolve_exec_argv_aliases(
-            &["test-ws".to_string()],
-            &aliases,
-            canonical,
-            workspace,
-        )
-        .expect("workspace alias should resolve");
+        let ws_out =
+            resolve_exec_argv_aliases(&["test-ws".to_string()], &aliases, canonical, workspace)
+                .expect("workspace alias should resolve");
         assert_eq!(ws_out.argv, vec!["npm", "test"]);
         assert_eq!(
             ws_out.cwd_override,

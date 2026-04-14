@@ -267,39 +267,34 @@ pub(crate) fn render_terminal_fullscreen_header(
     title: &str,
     title_style: Style,
 ) {
-    let exit_hint = " CTRL+G to exit ";
-    let split = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Min(0),
-            Constraint::Length(exit_hint.len() as u16),
-        ])
-        .split(area);
-
     frame.render_widget(
         Paragraph::new(Span::styled(title.to_string(), title_style)),
-        split[0],
-    );
-    frame.render_widget(
-        Paragraph::new(Span::styled(
-            exit_hint,
-            Style::default().fg(Color::DarkGray),
-        ))
-        .alignment(Alignment::Right),
-        split[1],
+        area,
     );
 }
 
-pub(crate) fn render_terminal_title_hint(frame: &mut Frame, area: Rect) {
-    let hint = " CTRL+G to fullscreen";
-    let hint_width = hint.len() as u16;
-    if area.width <= hint_width {
+pub(crate) fn render_terminal_title_hint(frame: &mut Frame, area: Rect, in_scroll_mode: bool) {
+    if area.width <= 2 || area.height == 0 {
         return;
     }
-    let hint_area = Rect::new(area.x + area.width - hint_width, area.y, hint_width, 1);
+    let hint = if in_scroll_mode {
+        "[Esc/q] exit scroll"
+    } else {
+        "[Ctrl+S] for scroll"
+    };
+    let hint_style = if in_scroll_mode {
+        Style::default().fg(Color::Yellow)
+    } else {
+        Style::default().fg(Color::DarkGray)
+    };
+    let hint_area = Rect::new(
+        area.x.saturating_add(1),
+        area.y,
+        area.width.saturating_sub(2),
+        1,
+    );
     frame.render_widget(
-        Paragraph::new(Span::styled(hint, Style::default().fg(Color::DarkGray)))
-            .alignment(Alignment::Right),
+        Paragraph::new(Span::styled(hint, hint_style)).alignment(Alignment::Right),
         hint_area,
     );
 }

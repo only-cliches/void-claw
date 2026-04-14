@@ -219,7 +219,7 @@ allowlist = ["domain=github.com"]
 
         // Deny > Prompt > Auto
         assert_eq!(composed.hostdo.default_policy, ApprovalMode::Deny);
-        assert_eq!(composed.network_default, NetworkPolicy::Deny);
+        assert_eq!(composed.network_default, NetworkPolicy::Prompt);
     }
 
     #[test]
@@ -228,10 +228,12 @@ allowlist = ["domain=github.com"]
             network_rules: vec![
                 parse_network_allowlist_rule("domain=api.example.com path=/api/v2/*")
                     .expect("parse rule"),
-                parse_network_allowlist_rule("method=POST domain=api.example.com path=/api/v2/auth/*")
-                    .expect("parse rule"),
+                parse_network_allowlist_rule(
+                    "method=POST domain=api.example.com path=/api/v2/auth/*",
+                )
+                .expect("parse rule"),
             ],
-            network_default: NetworkPolicy::Deny,
+            network_default: NetworkPolicy::Prompt,
             ..Default::default()
         };
 
@@ -247,10 +249,10 @@ allowlist = ["domain=github.com"]
             NetworkPolicy::Auto
         );
 
-        // Unmatched path is denied by default.
+        // Unmatched path is prompted by default.
         assert_eq!(
             rules.match_network("GET", "api.example.com", "/other"),
-            NetworkPolicy::Deny
+            NetworkPolicy::Prompt
         );
     }
 
@@ -325,14 +327,12 @@ allowlist = ["domain=github.com"]
         let rules = ComposedRules {
             hostdo: HostdoRules {
                 default_policy: ApprovalMode::Prompt,
-                commands: vec![
-                    RuleCommand {
-                        argv: vec!["cargo".into(), "test".into()],
-                        cwd: "/tmp".into(),
-                        approval_mode: ApprovalMode::Auto,
-                        ..Default::default()
-                    },
-                ],
+                commands: vec![RuleCommand {
+                    argv: vec!["cargo".into(), "test".into()],
+                    cwd: "/tmp".into(),
+                    approval_mode: ApprovalMode::Auto,
+                    ..Default::default()
+                }],
                 command_aliases: Default::default(),
             },
             ..Default::default()
@@ -343,7 +343,8 @@ allowlist = ["domain=github.com"]
         assert!(matched.is_none());
 
         // Partial match (superset)
-        let matched = rules.find_hostdo_command(&["cargo".into(), "test".into(), "--verbose".into()]);
+        let matched =
+            rules.find_hostdo_command(&["cargo".into(), "test".into(), "--verbose".into()]);
         assert!(matched.is_none());
     }
 
@@ -352,14 +353,12 @@ allowlist = ["domain=github.com"]
         let rules = ComposedRules {
             hostdo: HostdoRules {
                 default_policy: ApprovalMode::Prompt,
-                commands: vec![
-                    RuleCommand {
-                        argv: vec!["arg1".into(), "arg2".into()],
-                        cwd: "/tmp".into(),
-                        approval_mode: ApprovalMode::Auto,
-                        ..Default::default()
-                    },
-                ],
+                commands: vec![RuleCommand {
+                    argv: vec!["arg1".into(), "arg2".into()],
+                    cwd: "/tmp".into(),
+                    approval_mode: ApprovalMode::Auto,
+                    ..Default::default()
+                }],
                 command_aliases: Default::default(),
             },
             ..Default::default()

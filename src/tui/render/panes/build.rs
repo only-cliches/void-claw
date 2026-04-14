@@ -81,7 +81,10 @@ pub(crate) fn render_container_picker(frame: &mut Frame, app: &mut App, area: Re
         lines.push(Line::from(spans));
 
         lines.push(Line::from(Span::styled(
-            format!("      {}", c.image),
+            format!(
+                "      image: {}  (dockerfile: {}.dockerfile)",
+                c.image, c.image_stem
+            ),
             Style::default().fg(tone(Color::DarkGray)),
         )));
     }
@@ -100,29 +103,19 @@ pub(crate) fn render_container_picker(frame: &mut Frame, app: &mut App, area: Re
 pub(crate) fn render_image_build(frame: &mut Frame, app: &mut App, area: Rect, dimmed: bool) {
     let cfg = app.config.get();
     let ctr_idx = app.build_container_idx.unwrap_or(0);
-    let image = cfg
+    let (image, image_stem) = cfg
         .containers
         .get(ctr_idx)
-        .map(|c| c.image.as_str())
-        .unwrap_or("<unknown>");
+        .map(|c| (c.image.as_str(), c.image_stem.as_str()))
+        .unwrap_or(("<unknown>", "default"));
 
     let docker_dir = cfg.docker_dir.as_path();
-    let (base_cmd, agent_cmd) = App::build_commands_for(docker_dir, image);
-    let base_cmd_str = format!("docker {}", base_cmd.join(" "));
-    let agent_cmd_str = agent_cmd
+    let (build_cmd, maybe_base_cmd) = App::build_commands_for(docker_dir, image);
+    let build_cmd_str = format!("docker {}", build_cmd.join(" "));
+    let base_cmd_str = maybe_base_cmd
         .as_ref()
         .map(|cmd| format!("docker {}", cmd.join(" ")));
-
-    let parts: Vec<&str> = image.splitn(2, ':').collect();
-    let name = parts[0].split('/').last().unwrap_or(parts[0]);
-    let tag = parts.get(1).copied().unwrap_or("ubuntu-24.04");
-    let dockerfile_root = docker_dir;
-    let base_dockerfile = dockerfile_root.join(format!("{tag}.Dockerfile"));
-    let agent_dockerfile = name.strip_prefix("void-claw-").map(|agent| {
-        dockerfile_root
-            .join(agent)
-            .join(format!("{tag}.Dockerfile"))
-    });
+    let dockerfile = docker_dir.join(format!("{image_stem}.dockerfile"));
 
     let tone = |c| maybe_dim(c, dimmed);
     let focused = app.focus == Focus::ImageBuild;
@@ -144,15 +137,11 @@ pub(crate) fn render_image_build(frame: &mut Frame, app: &mut App, area: Rect, d
 
     let cursor = app.build_cursor;
 
-    let run_all_cmd_str = match agent_cmd_str.as_ref() {
-        Some(agent_cmd_str) => format!("{base_cmd_str} && {agent_cmd_str}"),
-        None => base_cmd_str.clone(),
-    };
     let actions: [(&str, &str, Option<&str>, &str); 2] = [
         (
             "r",
             "Run all build commands and launch container (Recommended)",
-            Some(&run_all_cmd_str),
+            None,
             "",
         ),
         ("c", "Cancel", None, "Return to sidebar"),
@@ -176,19 +165,9 @@ pub(crate) fn render_image_build(frame: &mut Frame, app: &mut App, area: Rect, d
                 .add_modifier(Modifier::BOLD),
         )),
         Line::from(vec![
-            Span::styled("  Base  : ", Style::default().fg(tone(Color::DarkGray))),
+            Span::styled("  Build : ", Style::default().fg(tone(Color::DarkGray))),
             Span::styled(
-                base_dockerfile.display().to_string(),
-                Style::default().fg(tone(Color::White)),
-            ),
-        ]),
-        Line::from(vec![
-            Span::styled("  Agent : ", Style::default().fg(tone(Color::DarkGray))),
-            Span::styled(
-                agent_dockerfile
-                    .as_ref()
-                    .map(|path| path.display().to_string())
-                    .unwrap_or_else(|| "(n/a for custom image tag)".to_string()),
+                dockerfile.display().to_string(),
                 Style::default().fg(tone(Color::White)),
             ),
         ]),
@@ -228,6 +207,21 @@ pub(crate) fn render_image_build(frame: &mut Frame, app: &mut App, area: Rect, d
             lines.push(Line::from(vec![
                 Span::styled("      $ ", Style::default().fg(tone(Color::Green))),
                 Span::styled(*cmd, Style::default().fg(tone(Color::DarkGray))),
+            ]));
+        }
+        if i == 0 {
+            if let Some(base_cmd) = base_cmd_str.as_ref() {
+                lines.push(Line::from(vec![
+                    Span::styled("      $ ", Style::default().fg(tone(Color::Green))),
+                    Span::styled(base_cmd.clone(), Style::default().fg(tone(Color::DarkGray))),
+                ]));
+            }
+            lines.push(Line::from(vec![
+                Span::styled("      $ ", Style::default().fg(tone(Color::Green))),
+                Span::styled(
+                    build_cmd_str.clone(),
+                    Style::default().fg(tone(Color::DarkGray)),
+                ),
             ]));
         }
         lines.push(Line::from(Span::styled(

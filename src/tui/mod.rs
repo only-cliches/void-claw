@@ -23,19 +23,17 @@ use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::{
     Arc, Mutex,
-    atomic::{AtomicBool, Ordering},
+    atomic::{AtomicBool, AtomicI32, Ordering},
 };
 use tokio::sync::mpsc;
 
 use crate::container::ContainerSession;
+use crate::proxy::{NetworkDecision, PendingNetworkItem, ProxyState};
 use crate::rules::NetworkPolicy;
 use crate::server::SessionRegistry;
 use crate::server::{ApprovalDecision, ContainerStopDecision, ContainerStopItem, PendingItem};
 use crate::shared_config::SharedConfig;
 use crate::state::{AuditEntry, StateManager};
-use crate::{
-    proxy::{NetworkDecision, PendingNetworkItem, ProxyState},
-};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum SettingsAction {
@@ -163,11 +161,14 @@ pub struct App {
     build_task: Option<BuildTaskState>,
 
     pub should_quit: bool,
+    pub passthrough_mode: bool,
+    pub passthrough_exit_code_slot: Option<Arc<AtomicI32>>,
     pub log_fullscreen: bool,
     pub terminal_fullscreen: bool,
     ctrl_c_times: Vec<std::time::Instant>,
     last_terminal_esc: Option<std::time::Instant>,
     pub scroll_mode: bool,
+    pub scroll_mouse_passthrough: bool,
     pub terminal_scroll: usize,
     last_base_rules_poll: std::time::Instant,
     watched_rules_stamps: HashMap<PathBuf, WatchedFileStamp>,
@@ -262,12 +263,7 @@ pub async fn run(mut app: App) -> Result<()> {
     let _termios_guard = disable_xon_xoff();
     enable_raw_mode()?;
     let mut stdout = std::io::stdout();
-    execute!(
-        stdout,
-        EnterAlternateScreen,
-        cursor::Hide,
-        EnableMouseCapture
-    )?;
+    execute!(stdout, EnterAlternateScreen, cursor::Hide)?;
     let mut restore_guard = TerminalRestoreGuard::new();
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
@@ -381,8 +377,10 @@ async fn event_loop(
 ) -> Result<()> {
     let mut events = EventStream::new();
     let tick = tokio::time::Duration::from_millis(50);
+    let mut mouse_capture_enabled = false;
 
     loop {
+        sync_mouse_capture(terminal.backend_mut(), app, &mut mouse_capture_enabled)?;
         app.drain_channels();
         app.tick_base_rules_file_watch();
         terminal.draw(|frame| render::render(frame, app))?;
@@ -409,8 +407,11 @@ async fn event_loop(
                         }
                     }
                     Some(Ok(Event::Resize(cols, rows))) => {
-                        let pty_cols = cols.saturating_sub(38).max(20);
-                        let pty_rows = rows.saturating_sub(10).max(6);
+                        let (pty_cols, pty_rows) = if app.passthrough_mode {
+                            (cols.max(20), rows.max(6))
+                        } else {
+                            (cols.saturating_sub(38).max(20), rows.saturating_sub(10).max(6))
+                        };
                         for session in &mut app.sessions {
                             let _ = session.resize(pty_rows, pty_cols);
                         }
@@ -418,11 +419,54 @@ async fn event_loop(
                     None => break,
                     _ => {}
                 }
+                sync_mouse_capture(terminal.backend_mut(), app, &mut mouse_capture_enabled)?;
             }
             _ = timeout => {}
         }
     }
 
+    Ok(())
+}
+
+fn session_mode_requires_mouse_capture(mode: TermMode) -> bool {
+    mode.intersects(TermMode::MOUSE_REPORT_CLICK | TermMode::MOUSE_DRAG | TermMode::MOUSE_MOTION)
+        && mode.contains(TermMode::SGR_MOUSE)
+}
+
+fn should_enable_mouse_capture(app: &App) -> bool {
+    if app.focus != Focus::Terminal {
+        return false;
+    }
+    // In explicit scroll mode, keep mouse capture disabled so terminal-native
+    // text selection works while reviewing scrollback.
+    if app.scroll_mode {
+        return false;
+    }
+    let Some(si) = app.active_session else {
+        return false;
+    };
+    let Some(session) = app.sessions.get(si) else {
+        return false;
+    };
+    let mode = *session.term.lock().mode();
+    session_mode_requires_mouse_capture(mode)
+}
+
+fn sync_mouse_capture<W: std::io::Write>(
+    writer: &mut W,
+    app: &App,
+    mouse_capture_enabled: &mut bool,
+) -> std::io::Result<()> {
+    let should_enable = should_enable_mouse_capture(app);
+    if should_enable == *mouse_capture_enabled {
+        return Ok(());
+    }
+    if should_enable {
+        execute!(writer, EnableMouseCapture)?;
+    } else {
+        execute!(writer, DisableMouseCapture)?;
+    }
+    *mouse_capture_enabled = should_enable;
     Ok(())
 }
 

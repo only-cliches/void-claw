@@ -28,7 +28,7 @@ AI coding agents are powerful, and by default, completely unconstrained. Give on
 
 Void Claw requires
 1. [Docker](https://www.docker.com/get-started/) to be installed and available in your system's `PATH`
-2. The [Rust programming language](https://rust-lang.org/tools/install/) to be insatlled.
+2. The [Rust programming language](https://rust-lang.org/tools/install/) to be installed.
 
 ### Install
 
@@ -38,15 +38,37 @@ cd void-claw
 cargo install --path .
 ```
 
-### 1. Initialization
+### CLI Binaries
 
-Run `void-claw` from any directory to generate your starter configuration:
+After install, Void Claw provides two binaries:
+
+* `void-claw-manager`: the interactive manager TUI.
+* `void-claw`: command passthrough (`void-claw -- codex`, `void-claw --image rust -- codex`, etc.).
+
+### Quick Start (After Install)
+
+From the directory you want to work on, run:
 
 ```bash
-void-claw
+cd /path/to/your/project
+void-claw -- codex
 ```
 
-This will prompt you to create a `void-claw.toml` file, populated with sensible defaults. Void Claw will use `./docker` as your Docker build directory if it exists, or fall back to `~/.config/void-claw/docker` and create it on first run. If the built-in Dockerfiles are missing, Void Claw will offer to fetch them from GitHub automatically.
+### 1. Initialization
+
+Run either CLI from any directory to generate your starter configuration:
+
+```bash
+void-claw-manager
+# or
+void-claw -- codex
+```
+
+If no config is found, Void Claw prompts you to create a `void-claw.toml` file, populated with sensible defaults. It will use `./docker` as your Docker build directory if it exists, or fall back to `~/.config/void-claw/docker` and create it on first run. If the built-in Dockerfiles are missing, Void Claw will offer to fetch them from GitHub automatically.
+
+The setup flow also seeds:
+* `<docker_dir>/void-claw-base.dockerfile` (shared base image template)
+* `<docker_dir>/default.dockerfile` (default runtime image template)
 
 ### 2. Add a Workspace
 
@@ -57,6 +79,24 @@ When a workspace is registered, Void Claw writes a `void-rules.toml` to the root
 ### 3. Launch an Agent
 
 From the TUI, use the arrow keys (or `j`/`k`) to navigate to a workspace and press `Enter` to launch an agent container.
+
+### 4. Passthrough Wrapper
+
+Run any command inside the configured containerized workspace passthrough:
+
+```bash
+void-claw -- codex
+```
+
+`--` is recommended before the wrapped command, and required when the wrapped command starts with `-` (or when you need strict argument disambiguation).
+
+Override the image by Dockerfile name in `docker_dir`:
+
+```bash
+void-claw --image rust -- codex
+```
+
+Image names map to `<docker_dir>/<name>.dockerfile` (for example `rust` -> `rust.dockerfile`).
 
 ## Supported Agents
 
@@ -73,7 +113,7 @@ For these agents, Void Claw automatically bind-mounts authentication and session
 
 ### Bring Your Own Agent (BYOA)
 
-Any agent that can run in a Docker container works with Void Claw. Define custom containers in `void-claw.toml` and set the agent type to `none` to skip built-in config injection, then mount your own images, environment variables, and configuration files.
+Any agent that can run in a Docker container works with Void Claw. Define custom `container_profiles` in `void-claw.toml`, choose a Dockerfile stem via `image = "<stem>"`, and set `agent = "none"` to skip built-in config injection when needed.
 
 ## Configuration
 
@@ -84,6 +124,9 @@ Void Claw uses two files to separate concerns cleanly: one for your local enviro
 Lives on your machine. Defines your environment:
 
 * Container profiles (which agent images to use)
+  * `container_profiles.<name>.image` resolves `<docker_dir>/<image>.dockerfile`
+  * `image` is a lowercase Dockerfile stem (`a-z`, `0-9`, `-`, `_`, `.`)
+  * Profiles are direct launch targets (there is no separate `[[containers]]` list)
 * Registered workspaces and their paths
 * Global network and execution defaults
 
@@ -132,7 +175,7 @@ Void Claw's built-in MITM proxy intercepts all outbound HTTP and HTTPS traffic f
 2. **Evaluate**: The request is checked against your global config and the workspace's `void-rules.toml`.
 3. **Enforce**:
    * **Allow**: Request matches a `[network].allowlist` expression.
-   * **Deny**: No allowlist match (deny by default).
+   * **Prompt**: No allowlist match (prompt by default).
 
 ### Proxy Configuration
 

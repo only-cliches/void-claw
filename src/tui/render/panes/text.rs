@@ -86,7 +86,7 @@ pub(crate) fn render_status_bar(frame: &mut Frame, app: &mut App, area: Rect) {
             " SCROLL: [↑↓/jk]line  [PgUp/PgDn]page  [g/G]top/bottom  [Esc/q]exit scroll"
         }
         Focus::Terminal => {
-            " [wheel]scroll  [^S]scroll  [^B]sidebar  [Alt+o]log  [^Q]quit  (keys forwarded to container)"
+            " [^S]scroll  [^B]sidebar  [Alt+o]log  [^Q]quit  (keys forwarded to container)"
         }
         Focus::Settings => " [↑↓/jk]navigate  [↵/l]select  [^B]back  [^Q]quit",
         Focus::ContainerPicker => " [↑↓/jk]navigate  [↵/l]launch  [^B]back  [^Q]quit",

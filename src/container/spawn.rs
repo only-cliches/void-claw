@@ -27,6 +27,7 @@ use crate::container::{ContainerSession, SessionEventProxy, compose_no_proxy, re
 /// terminal session.
 #[instrument(skip(
     ctr,
+    command_argv,
     workspace_path,
     codex_home_host_path,
     gemini_home_host_path,
@@ -34,6 +35,7 @@ use crate::container::{ContainerSession, SessionEventProxy, compose_no_proxy, re
 ))]
 pub fn spawn(
     ctr: &ContainerDef,
+    command_argv: Option<&[String]>,
     project_name: &str,
     workspace_path: &Path,
     codex_home_host_path: Option<&Path>,
@@ -56,8 +58,7 @@ pub fn spawn(
     };
     let mount_str = ctr.mount_target.display().to_string();
 
-    let cidfile =
-        std::env::temp_dir().join(format!("void-claw-cid-{}.txt", uuid::Uuid::new_v4()));
+    let cidfile = std::env::temp_dir().join(format!("void-claw-cid-{}.txt", uuid::Uuid::new_v4()));
     let docker_run_name = format!(
         "void-claw-{}-{}",
         sanitize_docker_name(&ctr.name),
@@ -334,6 +335,9 @@ pub fn spawn(
     }
 
     docker_args.push(ctr.image.clone());
+    if let Some(argv) = command_argv {
+        docker_args.extend(argv.iter().cloned());
+    }
 
     info!(
         "launching container: docker {}",
@@ -435,4 +439,169 @@ pub fn spawn(
         },
         launch_notes,
     ))
+}
+
+/// Launch a one-shot passthrough container session.
+///
+/// Unlike `spawn`, this path does not inject void-claw proxy/hostdo runtime
+/// environment variables. It is used by the `void-claw -- ...` wrapper.
+#[instrument(skip(command_argv, workspace_path, mount_target, mounts, env_passthrough))]
+pub fn spawn_passthrough(
+    image: &str,
+    image_name: &str,
+    command_argv: &[String],
+    project_name: &str,
+    workspace_path: &Path,
+    mount_target: &Path,
+    agent: AgentKind,
+    mounts: &[crate::config::ContainerMount],
+    env_passthrough: &[String],
+    rows: u16,
+    cols: u16,
+) -> Result<ContainerSession> {
+    let mount_str = mount_target.display().to_string();
+    let cidfile = std::env::temp_dir().join(format!("void-claw-cid-{}.txt", uuid::Uuid::new_v4()));
+    let docker_run_name = format!(
+        "void-claw-{}-{}",
+        sanitize_docker_name(image_name),
+        uuid::Uuid::new_v4().simple()
+    );
+
+    let mut docker_args: Vec<String> = vec![
+        "run".to_string(),
+        "--rm".to_string(),
+        "-it".to_string(),
+        "--name".to_string(),
+        docker_run_name.clone(),
+        "--cidfile".to_string(),
+        cidfile.display().to_string(),
+    ];
+
+    #[cfg(target_os = "linux")]
+    docker_args.push("--add-host=host.docker.internal:host-gateway".to_string());
+
+    #[cfg(target_os = "linux")]
+    docker_args.extend_from_slice(&["--user".to_string(), "1000:1000".to_string()]);
+
+    docker_args.extend_from_slice(&[
+        "-v".to_string(),
+        format!("{}:{}:rw", workspace_path.display(), mount_str),
+        "-w".to_string(),
+        mount_str.clone(),
+    ]);
+
+    for mount in mounts {
+        docker_args.push("-v".to_string());
+        docker_args.push(format!(
+            "{}:{}:{}",
+            mount.host.display(),
+            mount.container.display(),
+            mount_mode_arg(&mount.mode),
+        ));
+    }
+
+    for name in env_passthrough {
+        docker_args.push("-e".to_string());
+        docker_args.push(name.to_string());
+    }
+
+    docker_args.push(image.to_string());
+    docker_args.extend(command_argv.iter().cloned());
+
+    info!(
+        "launching passthrough container: docker {}",
+        docker_args
+            .iter()
+            .map(|a| if a.contains(' ') || a.contains('=') {
+                format!("'{a}'")
+            } else {
+                a.clone()
+            })
+            .collect::<Vec<_>>()
+            .join(" ")
+    );
+
+    let (fg, bg) = detect_default_colors();
+    let default_fg = alacritty_terminal::vte::ansi::Rgb {
+        r: fg.0,
+        g: fg.1,
+        b: fg.2,
+    };
+    let default_bg = alacritty_terminal::vte::ansi::Rgb {
+        r: bg.0,
+        g: bg.1,
+        b: bg.2,
+    };
+
+    let window_size = WindowSize {
+        num_lines: rows,
+        num_cols: cols,
+        cell_width: 0,
+        cell_height: 0,
+    };
+    let window_size_arc = Arc::new(Mutex::new(window_size));
+
+    let exited = Arc::new(AtomicBool::new(false));
+    let has_bell = Arc::new(AtomicBool::new(false));
+
+    let proxy = SessionEventProxy {
+        sender: Arc::new(Mutex::new(None)),
+        window_size: Arc::clone(&window_size_arc),
+        exited: Arc::clone(&exited),
+        has_bell: Arc::clone(&has_bell),
+        default_fg,
+        default_bg,
+        grayscale_palette: agent == AgentKind::Codex,
+    };
+
+    let mut term_cfg = TermConfig::default();
+    term_cfg.scrolling_history = 50_000;
+    let term_size = TermSize {
+        cols: cols as usize,
+        lines: rows as usize,
+    };
+    let term = Arc::new(FairMutex::new(Term::new(
+        term_cfg,
+        &term_size,
+        proxy.clone(),
+    )));
+
+    let mut options = tty::Options::default();
+    options.shell = Some(tty::Shell::new("docker".to_string(), docker_args));
+    options.working_directory = None;
+    options.drain_on_exit = false;
+    options.env = HashMap::new();
+
+    let pty = tty::new(&options, window_size, 0).context("open PTY")?;
+    let event_loop = EventLoop::new(Arc::clone(&term), proxy.clone(), pty, false, false)
+        .context("event loop")?;
+    let sender = event_loop.channel();
+    let notifier = Notifier(sender.clone());
+    if let Ok(mut s) = proxy.sender.lock() {
+        *s = Some(sender);
+    }
+    let _handle = event_loop.spawn();
+
+    let container_id =
+        read_container_id(&cidfile, &docker_run_name).context("reading docker container id")?;
+    let _ = std::fs::remove_file(&cidfile);
+
+    Ok(ContainerSession {
+        container_name: format!("passthrough-{image_name}"),
+        container_id,
+        docker_name: docker_run_name,
+        project: project_name.to_owned(),
+        session_token: uuid::Uuid::new_v4().simple().to_string(),
+        mount_target: mount_str,
+        launched_at: Instant::now(),
+        term,
+        notifier,
+        window_size: window_size_arc,
+        exited,
+        has_bell,
+        exit_reported: false,
+        _scoped_proxy: None,
+        _cred_tempfile: None,
+        _env_tempfile: None,
+    })
 }

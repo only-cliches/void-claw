@@ -28,7 +28,7 @@
 
 # ── Network (HTTP/HTTPS proxy policy) ────────────────────────────────────────
 #
-# Coder-style allowlist rules. If no rule matches, request is denied.
+# Coder-style allowlist rules. If no rule matches, request is prompted.
 # Rule format:
 #   method=GET,POST domain=api.example.com path=/v1/*,/health
 #
@@ -85,6 +85,10 @@ timeout_secs = 60
 concurrency = "queue"
 approval_mode = "auto"
 
+[hostdo.command_aliases.build]
+cmd = "cargo build"
+cwd = "$WORKSPACE"
+
 [hostdo.command_aliases.check]
 cmd = "cargo check"
 cwd = "$WORKSPACE"
@@ -93,17 +97,17 @@ cwd = "$WORKSPACE"
 cmd = "cargo fmt"
 cwd = "$WORKSPACE"
 
-[hostdo.command_aliases.build]
-cmd = "cargo build"
+[hostdo.command_aliases.lint]
+cmd = "cargo clippy"
 cwd = "$WORKSPACE"
 
 [hostdo.command_aliases.test]
 cmd = "cargo test"
 cwd = "$WORKSPACE"
 
-[hostdo.command_aliases.lint]
-cmd = "cargo clippy"
-cwd = "$WORKSPACE"
-
 [network]
-allowlist = []
+allowlist = [
+    "domain=raw.githubusercontent.com",
+    "domain=github.com",
+    "domain=registry.npmjs.org",
+]

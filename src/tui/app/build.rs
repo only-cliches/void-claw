@@ -1,6 +1,8 @@
 use super::*;
 
 impl App {
+    pub const BASE_IMAGE_TAG: &'static str = "void-claw-base:local";
+
     pub(crate) fn start_docker_build(
         &mut self,
         label: &str,
@@ -77,37 +79,51 @@ impl App {
         docker_dir: &Path,
         image: &str,
     ) -> (Vec<String>, Option<Vec<String>>) {
-        let parts: Vec<&str> = image.splitn(2, ':').collect();
-        let name = parts[0].split('/').last().unwrap_or(parts[0]);
-        let tag = parts.get(1).copied().unwrap_or("ubuntu-24.04");
-        let dockerfile_root = docker_dir;
-        let base_dockerfile = dockerfile_root.join(format!("{tag}.Dockerfile"));
-        let mut base_cmd = vec![
+        let dockerfile = docker_dir.join(format!(
+            "{}.dockerfile",
+            Self::dockerfile_stem_for_image(image)
+        ));
+        let cmd = vec![
             "build".to_string(),
             "-t".to_string(),
             image.to_string(),
             "-f".to_string(),
-            base_dockerfile.display().to_string(),
+            dockerfile.display().to_string(),
             docker_dir.display().to_string(),
         ];
-
-        let agent_cmd = name.strip_prefix("void-claw-").map(|agent| {
-            base_cmd[2] = format!("my-agent:{tag}");
-            vec![
+        let base_cmd = if image == Self::BASE_IMAGE_TAG {
+            None
+        } else {
+            Some(vec![
                 "build".to_string(),
                 "-t".to_string(),
-                image.to_string(),
+                Self::BASE_IMAGE_TAG.to_string(),
                 "-f".to_string(),
-                dockerfile_root
-                    .join(agent)
-                    .join(format!("{tag}.Dockerfile"))
+                docker_dir
+                    .join("void-claw-base.dockerfile")
                     .display()
                     .to_string(),
                 docker_dir.display().to_string(),
-            ]
-        });
+            ])
+        };
+        (cmd, base_cmd)
+    }
 
-        (base_cmd, agent_cmd)
+    pub fn dockerfile_stem_for_image(image: &str) -> String {
+        let raw_name = image
+            .split(':')
+            .next()
+            .unwrap_or(image)
+            .split('/')
+            .next_back()
+            .unwrap_or(image);
+        if raw_name == "void-claw-base" {
+            return "void-claw-base".to_string();
+        }
+        raw_name
+            .strip_prefix("void-claw-")
+            .unwrap_or(raw_name)
+            .to_string()
     }
 
     pub(crate) fn do_launch_container(&mut self, ctr_idx: usize) {

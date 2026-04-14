@@ -43,7 +43,11 @@ impl std::fmt::Display for DenyReason {
 
 /// Check whether the request should be hard-denied before any approval flow.
 /// Checks executable denylist, argument fragment denylist, and blocks shell metacharacters.
-pub fn check_denied(argv: &[String], proj: &WorkspaceConfig, config: &Config) -> Option<DenyReason> {
+pub fn check_denied(
+    argv: &[String],
+    proj: &WorkspaceConfig,
+    config: &Config,
+) -> Option<DenyReason> {
     if argv.is_empty() {
         return Some(DenyReason::EmptyArgv);
     }

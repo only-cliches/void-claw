@@ -167,11 +167,15 @@ env_passthrough = ["TERM", "COLORTERM", "COLORFGBG"]
 
 # ---------------------------------------------------------------------------
 # Container profiles.
-# Put reusable image settings here. Each [[containers]] entry picks one profile.
+# Each profile is a direct launch target shown in the manager.
+# `image` is a Dockerfile stem resolved as:
+#   <docker_dir>/<image>.dockerfile
+# If omitted, `image` defaults to "default".
+# Use lowercase stems only (`a-z`, `0-9`, `-`, `_`, `.`).
 # ---------------------------------------------------------------------------
 
 [container_profiles.claude]
-image = "void-claw-claude:ubuntu-24.04"
+image = "default"
 
 # Optional override for this profile's mount point.
 # mount_target = "/workspace"
@@ -204,7 +208,7 @@ container = "/home/ubuntu/.claude"
 mode = "rw"
 
 [container_profiles.codex]
-image = "void-claw-codex:ubuntu-24.04"
+image = "default"
 agent = "codex"
 
 # Optional profile-specific env passthrough.
@@ -229,7 +233,7 @@ container = "/home/ubuntu/.config/codex"
 mode = "rw"
 
 [container_profiles.gemini]
-image = "void-claw-gemini:ubuntu-24.04"
+image = "default"
 agent = "gemini"
 
 # Optional profile-specific env passthrough.
@@ -251,7 +255,7 @@ container = "/home/ubuntu/.gemini"
 mode = "rw"
 
 [container_profiles.opencode]
-image = "void-claw-opencode:ubuntu-24.04"
+image = "default"
 agent = "opencode"
 
 # Optional profile-specific env passthrough.
@@ -273,24 +277,3 @@ mode = "rw"
 host = "~/.config/opencode"
 container = "/home/ubuntu/.config/opencode"
 mode = "rw"
-
-# ---------------------------------------------------------------------------
-# Launchable containers shown in the TUI.
-# These should only define the display name and the profile to use.
-# ---------------------------------------------------------------------------
-
-[[containers]]
-name = "claude-agent"
-profile = "claude"
-
-[[containers]]
-name = "codex-agent"
-profile = "codex"
-
-[[containers]]
-name = "opencode-agent"
-profile = "opencode"
-
-[[containers]]
-name = "gemini-agent"
-profile = "gemini"

@@ -1,6 +1,16 @@
 use super::*;
 
 impl App {
+    fn container_command_for_agent(agent: &crate::config::AgentKind) -> Option<Vec<String>> {
+        match agent {
+            crate::config::AgentKind::Claude => Some(vec!["claude".to_string()]),
+            crate::config::AgentKind::Codex => Some(vec!["codex".to_string()]),
+            crate::config::AgentKind::Gemini => Some(vec!["gemini".to_string()]),
+            crate::config::AgentKind::Opencode => Some(vec!["opencode".to_string()]),
+            crate::config::AgentKind::None => None,
+        }
+    }
+
     pub(crate) fn do_launch_container_on_project(&mut self, pi: usize, ctr_idx: usize) {
         let cfg = self.config.get();
         let exec_host = cfg.defaults.hostdo.server_host.trim();
@@ -198,8 +208,10 @@ impl App {
             },
         );
 
+        let command_argv = Self::container_command_for_agent(&ctr.agent);
         match crate::container::spawn(
             &ctr,
+            command_argv.as_deref(),
             &proj.name,
             &mount_source_path,
             codex_home_host_path,
@@ -229,6 +241,7 @@ impl App {
                 }
                 self.active_session = Some(new_si);
                 self.scroll_mode = false;
+                self.scroll_mouse_passthrough = false;
                 self.terminal_scroll = 0;
                 self.focus = Focus::Terminal;
                 for note in launch_notes {

@@ -287,7 +287,10 @@ pub(crate) fn render_remove_workspace_confirm_overlay(frame: &mut Frame, app: &A
         Line::from(""),
         Line::from(vec![
             Span::styled("  Workspace: ", Style::default().fg(Color::DarkGray)),
-            Span::styled(state.workspace_name.clone(), Style::default().fg(Color::White)),
+            Span::styled(
+                state.workspace_name.clone(),
+                Style::default().fg(Color::White),
+            ),
         ]),
         Line::from(""),
         Line::from(Span::styled(
@@ -302,12 +305,16 @@ pub(crate) fn render_remove_workspace_confirm_overlay(frame: &mut Frame, app: &A
         Line::from(vec![
             Span::styled(
                 "[y/↵] ",
-                Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(Color::Green)
+                    .add_modifier(Modifier::BOLD),
             ),
             Span::styled("Remove  ", Style::default().fg(Color::White)),
             Span::styled(
                 "[n/Esc] ",
-                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
             ),
             Span::styled("Cancel", Style::default().fg(Color::White)),
         ]),
@@ -350,7 +357,10 @@ pub(crate) fn render_base_rules_changed_overlay(frame: &mut Frame, app: &App, ar
         )),
         Line::from(vec![
             Span::styled("  File: ", Style::default().fg(Color::DarkGray)),
-            Span::styled(state.path.display().to_string(), Style::default().fg(Color::White)),
+            Span::styled(
+                state.path.display().to_string(),
+                Style::default().fg(Color::White),
+            ),
         ]),
         Line::from(""),
         Line::from(Span::styled(
@@ -366,7 +376,9 @@ pub(crate) fn render_base_rules_changed_overlay(frame: &mut Frame, app: &App, ar
         Line::from(vec![
             Span::styled(
                 "[Enter/Esc] ",
-                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
             ),
             Span::styled("Dismiss", Style::default().fg(Color::White)),
         ]),

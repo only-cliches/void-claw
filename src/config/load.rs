@@ -5,7 +5,7 @@ use toml_edit::{DocumentMut, value};
 use tracing::instrument;
 
 use crate::config::{
-    AgentKind, AliasValue, Config, ContainerMount, DefaultsConfig, WorkspaceConfig, SyncMode,
+    AgentKind, AliasValue, Config, ContainerMount, DefaultsConfig, SyncMode, WorkspaceConfig,
     WorkspaceSection, default_mount_target,
 };
 
@@ -121,68 +121,67 @@ fn expand_config_paths(config: &mut Config) -> Result<()> {
 }
 
 fn resolve_container_profiles(config: &mut Config) -> Result<()> {
+    anyhow::ensure!(
+        config.containers.is_empty(),
+        "legacy [[containers]] is no longer supported; define launchable entries under [container_profiles.<name>] only"
+    );
+
     let defaults = config.defaults.containers.clone();
-    let profiles = config.container_profiles.clone();
+    let mut profile_names = config
+        .container_profiles
+        .keys()
+        .cloned()
+        .collect::<Vec<String>>();
+    profile_names.sort();
 
-    for ctr in &mut config.containers {
-        let profile_name = ctr
-            .profile
-            .as_ref()
-            .ok_or_else(|| anyhow::anyhow!("container '{}': profile is required", ctr.name))?;
-        let profile = profiles.get(profile_name).ok_or_else(|| {
-            anyhow::anyhow!(
-                "container '{}': unknown profile '{}'",
-                ctr.name,
-                profile_name
-            )
-        })?;
+    let mut resolved = Vec::with_capacity(profile_names.len());
+    for profile_name in profile_names {
+        let profile = config
+            .container_profiles
+            .get(&profile_name)
+            .ok_or_else(|| anyhow::anyhow!("unknown container profile '{}'", profile_name))?;
 
-        // Breaking schema: these fields now come from profiles/defaults.
+        let image_stem_raw = profile.image.as_deref().unwrap_or("default").trim();
         anyhow::ensure!(
-            ctr.image.trim().is_empty(),
-            "container '{}': 'image' is no longer supported; set [container_profiles.{}].image",
-            ctr.name,
+            !image_stem_raw.is_empty(),
+            "container profile '{}': image must not be empty",
             profile_name
         );
+        let image_stem = image_stem_raw.to_string();
         anyhow::ensure!(
-            ctr.mount_target == default_mount_target(),
-            "container '{}': 'mount_target' is no longer supported; set [container_profiles.{}].mount_target",
-            ctr.name,
+            image_stem.chars().all(|c| c.is_ascii_lowercase()
+                || c.is_ascii_digit()
+                || matches!(c, '-' | '_' | '.')),
+            "container profile '{}': image must be a lowercase stem (allowed: a-z, 0-9, '-', '_', '.')",
             profile_name
         );
-        anyhow::ensure!(
-            ctr.agent == AgentKind::None,
-            "container '{}': 'agent' is no longer supported; set [container_profiles.{}].agent",
-            ctr.name,
-            profile_name
-        );
+        let image_tag = image_tag_for_stem(&image_stem);
 
-        ctr.image = profile.image.clone().ok_or_else(|| {
-            anyhow::anyhow!("container profile '{}': image is required", profile_name)
-        })?;
-        ctr.mount_target = profile
-            .mount_target
-            .clone()
-            .or_else(|| defaults.mount_target.clone())
-            .unwrap_or_else(default_mount_target);
-        ctr.agent = profile
-            .agent
-            .clone()
-            .or_else(|| defaults.agent.clone())
-            .unwrap_or_default();
-
-        ctr.mounts = merge_mounts(&defaults.mounts, &profile.mounts, &ctr.mounts);
-        ctr.env_passthrough = merge_unique_strings(
-            &defaults.env_passthrough,
-            &profile.env_passthrough,
-            &ctr.env_passthrough,
-        );
-        ctr.bypass_proxy = merge_unique_strings(
-            &defaults.bypass_proxy,
-            &profile.bypass_proxy,
-            &ctr.bypass_proxy,
-        );
+        resolved.push(crate::config::ContainerDef {
+            name: profile_name.clone(),
+            profile: None,
+            image: image_tag,
+            mount_target: profile
+                .mount_target
+                .clone()
+                .or_else(|| defaults.mount_target.clone())
+                .unwrap_or_else(default_mount_target),
+            agent: profile
+                .agent
+                .clone()
+                .or_else(|| defaults.agent.clone())
+                .unwrap_or(AgentKind::None),
+            mounts: merge_mounts(&defaults.mounts, &profile.mounts, &[]),
+            env_passthrough: merge_unique_strings(
+                &defaults.env_passthrough,
+                &profile.env_passthrough,
+                &[],
+            ),
+            bypass_proxy: merge_unique_strings(&defaults.bypass_proxy, &profile.bypass_proxy, &[]),
+            image_stem,
+        });
     }
+    config.containers = resolved;
 
     Ok(())
 }
@@ -232,6 +231,21 @@ pub(crate) fn merge_mounts(
         }
     }
     out
+}
+
+pub fn image_tag_for_stem(stem: &str) -> String {
+    let mut slug = String::new();
+    for ch in stem.chars() {
+        if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.') {
+            slug.push(ch.to_ascii_lowercase());
+        } else {
+            slug.push('-');
+        }
+    }
+    if slug.is_empty() {
+        slug.push_str("default");
+    }
+    format!("void-claw-{slug}:local")
 }
 
 fn validate(config: &Config) -> Result<()> {
@@ -420,7 +434,10 @@ pub fn effective_denied_executables(
 
 /// Effective denied argument fragments.
 #[instrument(skip(proj, defaults))]
-pub fn effective_denied_fragments(proj: &WorkspaceConfig, defaults: &DefaultsConfig) -> Vec<String> {
+pub fn effective_denied_fragments(
+    proj: &WorkspaceConfig,
+    defaults: &DefaultsConfig,
+) -> Vec<String> {
     proj.hostdo
         .as_ref()
         .and_then(|he| he.denied_argument_fragments.clone())

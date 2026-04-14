@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 #[derive(Parser)]
 #[command(
-    name = "void-claw",
+    name = "void-claw-manager",
     version,
     about = "LLM agent workspace manager — safely exposes filtered workspaces to AI coding agents"
 )]

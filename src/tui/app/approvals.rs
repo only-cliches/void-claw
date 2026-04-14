@@ -58,12 +58,8 @@ impl App {
         let project_name = item.project.clone();
         let cwd = self.portable_cwd(&item.rule_cwd, &project_name);
         if let Some(rules_path) = self.project_rules_path(&project_name) {
-            match self.persist_exec_rule(
-                &rules_path,
-                &argv,
-                &cwd,
-                crate::rules::ApprovalMode::Deny,
-            ) {
+            match self.persist_exec_rule(&rules_path, &argv, &cwd, crate::rules::ApprovalMode::Deny)
+            {
                 Ok(()) => {
                     self.push_log(
                         format!(
@@ -253,7 +249,10 @@ impl App {
         let rules_path = match project_name {
             Some(name) => match self.project_rules_path(name) {
                 Some(path) => path,
-                None => anyhow::bail!("cannot persist network rule: workspace '{}' not found", name),
+                None => anyhow::bail!(
+                    "cannot persist network rule: workspace '{}' not found",
+                    name
+                ),
             },
             None => anyhow::bail!(
                 "cannot persist network rule: unknown workspace (request lacked workspace attribution)"

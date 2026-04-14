@@ -5,6 +5,5 @@ use anyhow::Result;
 // held in App across await points in the TUI event loop.
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<()> {
-    let exit_code = void_claw::passthrough::run_and_get_exit_code().await?;
-    std::process::exit(exit_code);
+    void_claw::manager::run().await
 }

@@ -65,19 +65,21 @@ pub enum AgentKind {
     Opencode,
 }
 
-/// A named container definition.  Lives in `[[containers]]` at the top level
-/// of the config file.  Containers are environment definitions — which project
-/// workspace to mount is chosen at launch time in the TUI.
+/// Internal resolved container launch definition synthesized from
+/// `[container_profiles.<name>]` entries.
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct ContainerDef {
     /// Human-readable identifier shown in the TUI tab bar.
     pub name: String,
-    /// Optional profile key from `[container_profiles.<name>]`.
-    #[serde(default)]
-    pub profile: Option<String>,
     /// Docker image to run.
     #[serde(default)]
     pub image: String,
+    /// Dockerfile stem (e.g. `default` -> `<docker_dir>/default.dockerfile`).
+    #[serde(default)]
+    pub image_stem: String,
+    /// Optional profile key (legacy/internal compatibility field).
+    #[serde(default)]
+    pub profile: Option<String>,
     /// Path inside the container where the project workspace is mounted.
     /// Defaults to `/workspace`.
     #[serde(default = "default_mount_target")]
@@ -99,9 +101,11 @@ pub struct ContainerDef {
     pub bypass_proxy: Vec<String>,
 }
 
-/// Named container profile used to reduce duplication in `[[containers]]`.
+/// Named container profile used directly as a launch target.
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
 pub struct ContainerProfile {
+    /// Dockerfile stem looked up as `<docker_dir>/<image>.dockerfile`.
+    /// Defaults to `default` when omitted.
     #[serde(default)]
     pub image: Option<String>,
     #[serde(default)]

@@ -197,8 +197,16 @@ mod tests {
     fn gemini_starter_rules_include_google_hosts() {
         let rules = generate_starter_project_rules(&AgentKind::Gemini);
         let allowlist = rules.network.allowlist;
-        assert!(allowlist.iter().any(|r| r == "domain=generativelanguage.googleapis.com"));
+        assert!(
+            allowlist
+                .iter()
+                .any(|r| r == "domain=generativelanguage.googleapis.com")
+        );
         assert!(allowlist.iter().any(|r| r == "domain=accounts.google.com"));
-        assert!(allowlist.iter().any(|r| r == "domain=oauth2.googleapis.com"));
+        assert!(
+            allowlist
+                .iter()
+                .any(|r| r == "domain=oauth2.googleapis.com")
+        );
     }
 }

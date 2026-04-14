@@ -7,15 +7,11 @@ use tracing::instrument;
 
 const SAMPLE_CONFIG: &str = include_str!("../void-claw.example.toml");
 const DOCKER_DIR_PLACEHOLDER: &str = "__VOID_CLAW_DOCKER_DIR__";
+const BASE_DOCKERFILE_TEMPLATE: &str = include_str!("../docker/void-claw-base.dockerfile");
+const DEFAULT_DOCKERFILE_TEMPLATE: &str = include_str!("../docker/default.dockerfile");
 const GITHUB_DOCKER_BASE_URL: &str =
     "https://raw.githubusercontent.com/only-cliches/void-claw/refs/heads/main/docker";
-const BUILTIN_DOCKERFILES: &[&str] = &[
-    "ubuntu-24.04.Dockerfile",
-    "claude/ubuntu-24.04.Dockerfile",
-    "codex/ubuntu-24.04.Dockerfile",
-    "gemini/ubuntu-24.04.Dockerfile",
-    "opencode/ubuntu-24.04.Dockerfile",
-];
+const BUILTIN_DOCKERFILES: &[&str] = &["void-claw-base.dockerfile"];
 
 const HOSTDO_SCRIPT: &str = include_str!("../docker/scripts/hostdo.py");
 const KILLME_SCRIPT: &str = include_str!("../docker/scripts/killme.py");
@@ -39,6 +35,8 @@ pub fn write_sample_config(output: &Path) -> Result<()> {
         .join(".config/void-claw");
     let docker_dir = resolve_init_docker_dir(&cwd, &home_config_root);
     fs::create_dir_all(&docker_dir)?;
+    ensure_base_dockerfile(&docker_dir)?;
+    ensure_default_dockerfile(&docker_dir)?;
     let docker_dir_literal = toml::Value::String(docker_dir.display().to_string()).to_string();
     let sample = SAMPLE_CONFIG.replace(DOCKER_DIR_PLACEHOLDER, &docker_dir_literal);
     std::fs::write(output, sample)?;
@@ -56,6 +54,9 @@ fn resolve_init_docker_dir(cwd: &Path, home_config_root: &Path) -> PathBuf {
 
 #[instrument(skip(docker_dir))]
 pub fn ensure_docker_assets(docker_dir: &Path) -> Result<()> {
+    ensure_base_dockerfile(docker_dir)?;
+    ensure_default_dockerfile(docker_dir)?;
+
     let missing_dockerfiles = missing_builtin_dockerfiles(docker_dir);
     let missing_helper_scripts = missing_helper_scripts(docker_dir);
 
@@ -87,9 +88,29 @@ pub fn ensure_docker_assets(docker_dir: &Path) -> Result<()> {
     }
 
     fs::create_dir_all(docker_dir)?;
-    write_helper_scripts(docker_dir)?;
+    ensure_base_dockerfile(docker_dir)?;
+    ensure_default_dockerfile(docker_dir)?;
+    ensure_helper_scripts(docker_dir)?;
     download_missing_dockerfiles(docker_dir, &missing_dockerfiles)?;
     Ok(())
+}
+
+#[instrument(skip(docker_dir))]
+pub fn ensure_default_dockerfile(docker_dir: &Path) -> Result<()> {
+    let path = docker_dir.join("default.dockerfile");
+    if path.exists() {
+        return Ok(());
+    }
+    write_text_file(&path, DEFAULT_DOCKERFILE_TEMPLATE)
+}
+
+#[instrument(skip(docker_dir))]
+pub fn ensure_base_dockerfile(docker_dir: &Path) -> Result<()> {
+    let path = docker_dir.join("void-claw-base.dockerfile");
+    if path.exists() {
+        return Ok(());
+    }
+    write_text_file(&path, BASE_DOCKERFILE_TEMPLATE)
 }
 
 #[cfg(test)]
@@ -127,7 +148,8 @@ fn prompt_yes_no(prompt: &str) -> Result<bool> {
     Ok(matches!(input.trim().to_lowercase().as_str(), "y" | "yes"))
 }
 
-fn write_helper_scripts(docker_dir: &Path) -> Result<()> {
+#[instrument(skip(docker_dir))]
+pub fn ensure_helper_scripts(docker_dir: &Path) -> Result<()> {
     let scripts_dir = docker_dir.join("scripts");
     fs::create_dir_all(&scripts_dir)?;
     write_text_file(&scripts_dir.join("hostdo.py"), HOSTDO_SCRIPT)?;
@@ -176,15 +198,14 @@ fn write_text_file(path: &Path, contents: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::{
-        builtin_dockerfile_paths, ensure_docker_assets, resolve_init_docker_dir,
-        write_sample_config,
+        builtin_dockerfile_paths, ensure_base_dockerfile, ensure_default_dockerfile,
+        ensure_docker_assets, resolve_init_docker_dir, write_sample_config,
     };
     use crate::config::Config;
 
     #[test]
     fn sample_config_writes_parseable_docker_dir() {
-        let root = std::env::temp_dir()
-            .join(format!("void-claw-init-{}", uuid::Uuid::new_v4()));
+        let root = std::env::temp_dir().join(format!("void-claw-init-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&root).expect("create temp dir");
         let output = root.join("void-claw.toml");
         let cwd = std::env::current_dir().expect("current dir");
@@ -221,17 +242,12 @@ mod tests {
     #[test]
     fn builtin_dockerfile_paths_include_expected_templates() {
         let paths = builtin_dockerfile_paths();
-        assert!(paths.contains(&"ubuntu-24.04.Dockerfile"));
-        assert!(paths.contains(&"codex/ubuntu-24.04.Dockerfile"));
-        assert!(paths.contains(&"claude/ubuntu-24.04.Dockerfile"));
-        assert!(paths.contains(&"gemini/ubuntu-24.04.Dockerfile"));
-        assert!(paths.contains(&"opencode/ubuntu-24.04.Dockerfile"));
+        assert!(paths.contains(&"void-claw-base.dockerfile"));
     }
 
     #[test]
     fn ensure_docker_assets_is_a_noop_when_complete() {
-        let root =
-            std::env::temp_dir().join(format!("void-claw-docker-{}", uuid::Uuid::new_v4()));
+        let root = std::env::temp_dir().join(format!("void-claw-docker-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(root.join("scripts")).expect("create scripts dir");
         for path in builtin_dockerfile_paths() {
             let file = root.join(path);
@@ -244,5 +260,39 @@ mod tests {
         std::fs::write(root.join("scripts/killme.py"), "killme").expect("write killme");
 
         ensure_docker_assets(&root).expect("ensure assets");
+    }
+
+    #[test]
+    fn ensure_default_dockerfile_creates_template_when_missing() {
+        let root = std::env::temp_dir().join(format!(
+            "void-claw-default-dockerfile-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&root).expect("create root");
+        let path = root.join("default.dockerfile");
+        assert!(!path.exists());
+
+        ensure_default_dockerfile(&root).expect("write default dockerfile");
+        assert!(path.exists());
+
+        let content = std::fs::read_to_string(path).expect("read default dockerfile");
+        assert!(content.contains("void-claw default image"));
+    }
+
+    #[test]
+    fn ensure_base_dockerfile_creates_template_when_missing() {
+        let root = std::env::temp_dir().join(format!(
+            "void-claw-base-dockerfile-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&root).expect("create root");
+        let path = root.join("void-claw-base.dockerfile");
+        assert!(!path.exists());
+
+        ensure_base_dockerfile(&root).expect("write base dockerfile");
+        assert!(path.exists());
+
+        let content = std::fs::read_to_string(path).expect("read base dockerfile");
+        assert!(content.contains("void-claw base"));
     }
 }
