@@ -43,12 +43,12 @@ impl ProjectType {
     }
 }
 
-/// Create `void-rules.toml` in a canonical directory if it does not exist.
-pub fn write_rules_if_missing(canonical_dir: &Path, project_type: ProjectType) -> Result<bool> {
+/// Create `void-rules.toml` in a workspace directory if it does not exist.
+pub fn write_rules_if_missing(workspace_dir: &Path, project_type: ProjectType) -> Result<bool> {
     if matches!(project_type, ProjectType::None) {
         return Ok(false);
     }
-    let rules_path = canonical_dir.join("void-rules.toml");
+    let rules_path = workspace_dir.join("void-rules.toml");
     if rules_path.exists() {
         return Ok(false);
     }
@@ -60,28 +60,16 @@ pub fn write_rules_if_missing(canonical_dir: &Path, project_type: ProjectType) -
 
 /// Return the starter rule set for a new project type.
 pub fn default_rules(project_type: ProjectType) -> ProjectRules {
-    let (exclude_patterns, command_aliases) = match project_type {
-        ProjectType::None => (vec![], HashMap::new()),
-        ProjectType::Rust => (
-            vec!["target/**".to_string()],
-            aliases([
+    let command_aliases = match project_type {
+        ProjectType::None => HashMap::new(),
+        ProjectType::Rust => aliases([
                 ("build", "cargo build"),
                 ("check", "cargo check"),
                 ("test", "cargo test"),
                 ("fmt", "cargo fmt"),
                 ("lint", "cargo clippy"),
             ]),
-        ),
-        ProjectType::Node => (
-            vec![
-                "node_modules/**".to_string(),
-                "dist/**".to_string(),
-                "build/**".to_string(),
-                ".next/**".to_string(),
-                ".cache/**".to_string(),
-                ".turbo/**".to_string(),
-            ],
-            aliases([
+        ProjectType::Node => aliases([
                 ("install", "npm install"),
                 ("test", "npm run test"),
                 ("lint", "npm run lint"),
@@ -91,21 +79,7 @@ pub fn default_rules(project_type: ProjectType) -> ProjectRules {
                 ("yarn_test", "yarn test"),
                 ("bun_test", "bun test"),
             ]),
-        ),
-        ProjectType::Python => (
-            vec![
-                "__pycache__/**".to_string(),
-                ".pytest_cache/**".to_string(),
-                ".mypy_cache/**".to_string(),
-                ".ruff_cache/**".to_string(),
-                ".tox/**".to_string(),
-                ".venv/**".to_string(),
-                "venv/**".to_string(),
-                "dist/**".to_string(),
-                "build/**".to_string(),
-                "*.egg-info/**".to_string(),
-            ],
-            aliases([
+        ProjectType::Python => aliases([
                 ("test", "pytest"),
                 ("pytest", "pytest"),
                 ("unittest", "python -m unittest"),
@@ -116,25 +90,16 @@ pub fn default_rules(project_type: ProjectType) -> ProjectRules {
                 ("pip_install", "pip install -r requirements.txt"),
                 ("poetry_install", "poetry install"),
             ]),
-        ),
-        ProjectType::Go => (
-            vec![
-                "bin/**".to_string(),
-                "dist/**".to_string(),
-                "coverage/**".to_string(),
-            ],
-            aliases([
+        ProjectType::Go => aliases([
                 ("build", "go build ./..."),
                 ("test", "go test ./..."),
                 ("fmt", "gofmt -w ."),
                 ("vet", "go vet ./..."),
                 ("tidy", "go mod tidy"),
             ]),
-        ),
     };
 
     ProjectRules {
-        exclude_patterns,
         hostdo: HostdoRules {
             command_aliases,
             ..HostdoRules::default()
@@ -153,14 +118,14 @@ fn aliases<const N: usize>(
                 name.to_string(),
                 AliasValue::WithOptions {
                     cmd: cmd.to_string(),
-                    cwd: Some(PathBuf::from("$CANONICAL")),
+                    cwd: Some(PathBuf::from("$WORKSPACE")),
                 },
             )
         })
         .collect()
 }
 
-/// Append a project block to `void-rules.toml` using the built-in template.
+/// Append a workspace block to `void-claw.toml` using the built-in template.
 pub fn append_project_block(
     config_path: &Path,
     project_name: &str,
@@ -169,7 +134,7 @@ pub fn append_project_block(
 ) -> Result<()> {
     anyhow::ensure!(
         !project_name.trim().is_empty(),
-        "project name must not be empty"
+        "workspace name must not be empty"
     );
 
     let name = toml_basic_string(project_name)?;
@@ -184,12 +149,12 @@ pub fn append_project_block(
     let block = format!(
         r#"
 
-[[projects]]
+[[workspaces]]
 name = {name}
 canonical_path = {canonical}
 {disposable}
 
-[projects.sync]
+[workspaces.sync]
 mode = "{mode}"
 "#,
         disposable = disposable
@@ -204,6 +169,50 @@ mode = "{mode}"
     f.write_all(block.as_bytes())
         .with_context(|| format!("appending to {}", config_path.display()))?;
     Ok(())
+}
+
+/// Remove a workspace block from `void-claw.toml` by name.
+///
+/// Removes entries from both `[[workspaces]]` and legacy `[[projects]]` arrays.
+/// Returns true if at least one block was removed.
+pub fn remove_workspace_block(config_path: &Path, workspace_name: &str) -> Result<bool> {
+    anyhow::ensure!(
+        !workspace_name.trim().is_empty(),
+        "workspace name must not be empty"
+    );
+    let raw = std::fs::read_to_string(config_path)
+        .with_context(|| format!("reading config: {}", config_path.display()))?;
+    let mut doc = raw
+        .parse::<toml_edit::DocumentMut>()
+        .with_context(|| format!("parsing config document: {}", config_path.display()))?;
+
+    let mut removed = false;
+    for key in ["workspaces", "projects"] {
+        let Some(item) = doc.get_mut(key) else {
+            continue;
+        };
+        let Some(aot) = item.as_array_of_tables_mut() else {
+            continue;
+        };
+        for idx in (0..aot.len()).rev() {
+            let matches = aot
+                .get(idx)
+                .and_then(|t| t.get("name"))
+                .and_then(|v| v.as_str())
+                .map(|n| n == workspace_name)
+                .unwrap_or(false);
+            if matches {
+                aot.remove(idx);
+                removed = true;
+            }
+        }
+    }
+
+    if removed {
+        std::fs::write(config_path, doc.to_string())
+            .with_context(|| format!("writing config: {}", config_path.display()))?;
+    }
+    Ok(removed)
 }
 
 fn sync_mode_toml_value(mode: &SyncMode) -> &'static str {
@@ -227,7 +236,10 @@ fn toml_basic_string(s: &str) -> Result<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{ProjectType, append_project_block, default_rules, write_rules_if_missing};
+    use super::{
+        ProjectType, append_project_block, default_rules, remove_workspace_block,
+        write_rules_if_missing,
+    };
     use crate::config::{Config, SyncMode};
     use std::fs;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -245,7 +257,6 @@ mod tests {
     #[test]
     fn templates_include_expected_aliases_and_excludes() {
         let rules = default_rules(ProjectType::Rust);
-        assert!(rules.exclude_patterns.iter().any(|p| p == "target/**"));
         assert!(rules.hostdo.command_aliases.contains_key("build"));
         let build = rules
             .hostdo
@@ -255,7 +266,7 @@ mod tests {
         match build {
             crate::config::AliasValue::WithOptions { cmd, cwd } => {
                 assert_eq!(cmd, "cargo build");
-                assert_eq!(cwd.as_ref().unwrap().as_os_str(), "$CANONICAL");
+                assert_eq!(cwd.as_ref().unwrap().as_os_str(), "$WORKSPACE");
             }
             _ => panic!("expected WithOptions alias"),
         }
@@ -264,7 +275,6 @@ mod tests {
     #[test]
     fn none_project_type_has_no_starter_rules() {
         let rules = default_rules(ProjectType::None);
-        assert!(rules.exclude_patterns.is_empty());
         assert!(rules.hostdo.command_aliases.is_empty());
     }
 
@@ -302,15 +312,13 @@ mod tests {
             r#"
 docker_dir = "{}"
 
+[workspace]
+
 [manager]
 global_rules_file = "{}"
-
-[workspace]
-root = "{}"
 "#,
             docker_dir.display(),
             root.join("global-rules.toml").display(),
-            root.join("ws").display(),
         );
         fs::write(&config_path, raw).expect("write base config");
 
@@ -318,7 +326,7 @@ root = "{}"
             .expect("append");
         let cfg: Config = crate::config::load(&config_path).expect("load");
 
-        let proj = cfg.projects.first().expect("project");
+        let proj = cfg.workspaces.first().expect("project");
         assert_eq!(proj.name, "proj");
         assert_eq!(proj.canonical_path, canon);
         assert_eq!(
@@ -340,22 +348,20 @@ root = "{}"
             r#"
 docker_dir = "{}"
 
+[workspace]
+
 [manager]
 global_rules_file = "{}"
-
-[workspace]
-root = "{}"
 "#,
             docker_dir.display(),
             root.join("global-rules.toml").display(),
-            root.join("ws").display(),
         );
         fs::write(&config_path, raw).expect("write base config");
 
         append_project_block(&config_path, "proj", &canon, SyncMode::Direct).expect("append");
         let cfg: Config = crate::config::load(&config_path).expect("load");
 
-        let proj = cfg.projects.first().expect("project");
+        let proj = cfg.workspaces.first().expect("project");
         assert_eq!(proj.name, "proj");
         assert_eq!(proj.canonical_path, canon);
         assert_eq!(
@@ -363,5 +369,51 @@ root = "{}"
             Some(SyncMode::Direct)
         );
         assert!(!proj.disposable);
+    }
+
+    #[test]
+    fn remove_workspace_block_removes_matching_workspaces() {
+        let root = unique_temp_dir("config-remove-workspace");
+        let config_path = root.join("void-claw.toml");
+        fs::write(
+            &config_path,
+            r#"
+[[workspaces]]
+name = "a"
+canonical_path = "/tmp/a"
+
+[[workspaces]]
+name = "b"
+canonical_path = "/tmp/b"
+"#,
+        )
+        .expect("write config");
+
+        let removed = remove_workspace_block(&config_path, "a").expect("remove");
+        assert!(removed);
+
+        let cfg = fs::read_to_string(&config_path).expect("read config");
+        assert!(!cfg.contains("name = \"a\""));
+        assert!(cfg.contains("name = \"b\""));
+    }
+
+    #[test]
+    fn remove_workspace_block_supports_legacy_projects_key() {
+        let root = unique_temp_dir("config-remove-legacy-projects");
+        let config_path = root.join("void-claw.toml");
+        fs::write(
+            &config_path,
+            r#"
+[[projects]]
+name = "legacy-a"
+canonical_path = "/tmp/a"
+"#,
+        )
+        .expect("write config");
+
+        let removed = remove_workspace_block(&config_path, "legacy-a").expect("remove");
+        assert!(removed);
+        let cfg = fs::read_to_string(&config_path).expect("read config");
+        assert!(!cfg.contains("legacy-a"));
     }
 }

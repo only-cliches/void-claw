@@ -42,11 +42,10 @@ mod tests {
         // Wait, I can just use build_test_app logic if I want but let's just make a dummy config.
         let raw = r#"
 docker_dir = "/tmp"
-[manager]
-global_rules_file = "/tmp/global.toml"
 [workspace]
-root = "/tmp/ws"
-"#;
+
+[manager]
+global_rules_file = "/tmp/global.toml""#;
         let cfg: crate::config::Config = toml::from_str(raw).unwrap();
         let state = ProxyState::new(ca, SharedConfig::new(Arc::new(cfg)), pending_tx).unwrap();
 

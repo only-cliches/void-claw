@@ -23,8 +23,8 @@ pub struct Config {
     pub agents: AgentsConfig,
     #[serde(default)]
     pub env_profiles: HashMap<String, EnvProfile>,
-    #[serde(default)]
-    pub projects: Vec<ProjectConfig>,
+    #[serde(default, alias = "projects")]
+    pub workspaces: Vec<WorkspaceConfig>,
     #[serde(default)]
     pub container_profiles: HashMap<String, ContainerProfile>,
     #[serde(default)]
@@ -44,7 +44,7 @@ impl Default for Config {
             defaults: DefaultsConfig::default(),
             agents: AgentsConfig::default(),
             env_profiles: HashMap::new(),
-            projects: Vec::new(),
+            workspaces: Vec::new(),
             container_profiles: HashMap::new(),
             containers: Vec::new(),
             logging: LoggingConfig::default(),
@@ -60,12 +60,12 @@ pub struct ManagerConfig {
     pub global_rules_file: PathBuf,
 }
 
-/// The single managed workspace root.
+/// Reserved section for future workspace-scoped settings.
+///
+/// Breaking change: `workspace.root` has been removed.
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
-pub struct WorkspaceSection {
-    /// All project workspace copies land at `root/<project.name>/`.
-    pub root: PathBuf,
-}
+#[serde(deny_unknown_fields)]
+pub struct WorkspaceSection {}
 
 // ── Agents ───────────────────────────────────────────────────────────────────
 
@@ -114,14 +114,13 @@ pub struct DefaultsConfig {
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
+#[serde(deny_unknown_fields)]
 pub struct SyncDefaults {
     pub mode: SyncMode,
     pub delete_propagation: bool,
     pub rename_propagation: bool,
     pub symlink_policy: SymlinkPolicy,
     pub conflict_policy: ConflictPolicy,
-    #[serde(default = "default_exclude_patterns")]
-    pub global_exclude_patterns: Vec<String>,
 }
 
 impl Default for SyncDefaults {
@@ -132,39 +131,8 @@ impl Default for SyncDefaults {
             rename_propagation: false,
             symlink_policy: SymlinkPolicy::default(),
             conflict_policy: ConflictPolicy::default(),
-            global_exclude_patterns: default_exclude_patterns(),
         }
     }
-}
-
-/// Defines common files/directories to exclude from workspace synchronization.
-/// These are typically sensitive files or build artifacts.
-fn default_exclude_patterns() -> Vec<String> {
-    [
-        ".*",
-        ".git",
-        ".git/**",
-        ".env",
-        ".env.*",
-        "*.pem",
-        "*.key",
-        "*.pfx",
-        "*.p12",
-        "id_rsa",
-        "id_ed25519",
-        "id_ecdsa",
-        ".ssh",
-        ".ssh/**",
-        ".gnupg",
-        ".gnupg/**",
-        ".aws",
-        ".aws/**",
-        ".claude",
-        ".claude/**",
-    ]
-    .iter()
-    .map(|s| s.to_string())
-    .collect()
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -221,7 +189,6 @@ pub enum AliasValue {
 }
 
 /// Magic cwd values resolved at request time with project context.
-const ALIAS_CWD_CANONICAL: &str = "$CANONICAL";
 const ALIAS_CWD_WORKSPACE: &str = "$WORKSPACE";
 
 impl AliasValue {
@@ -232,19 +199,20 @@ impl AliasValue {
         }
     }
 
-    /// Resolve the alias cwd, substituting magic values:
-    /// - `$CANONICAL` → project's canonical (host) path
-    /// - `$WORKSPACE` → project's effective workspace path
-    pub fn resolve_cwd(&self, canonical_path: &Path, workspace_path: &Path) -> Option<PathBuf> {
+    /// Resolve the alias cwd, substituting the `$WORKSPACE` placeholder.
+    pub fn resolve_cwd(&self, workspace_path: &Path) -> Option<PathBuf> {
         match self {
             Self::Simple(_) => None,
             Self::WithOptions { cwd: None, .. } => None,
             Self::WithOptions { cwd: Some(p), .. } => {
-                let s = p.as_os_str();
-                if s == ALIAS_CWD_CANONICAL {
-                    Some(canonical_path.to_path_buf())
-                } else if s == ALIAS_CWD_WORKSPACE {
+                let raw = p.to_string_lossy();
+                if raw == ALIAS_CWD_WORKSPACE {
                     Some(workspace_path.to_path_buf())
+                } else if let Some(rest) = raw
+                    .strip_prefix("$WORKSPACE/")
+                    .or_else(|| raw.strip_prefix("$WORKSPACE\\"))
+                {
+                    Some(workspace_path.join(rest))
                 } else {
                     Some(p.clone())
                 }
@@ -252,8 +220,8 @@ impl AliasValue {
         }
     }
 
-    /// Expand `~` in the cwd path, if present.  Skips magic values like
-    /// `$CANONICAL` / `$WORKSPACE` which are resolved later with project context.
+    /// Expand `~` in the cwd path, if present. Skips `$WORKSPACE`, which is
+    /// resolved later with project context.
     pub(crate) fn expand_cwd(&mut self) -> Result<()> {
         if let Self::WithOptions { cwd: Some(p), .. } = self {
             if !p.as_os_str().to_string_lossy().starts_with('$') {

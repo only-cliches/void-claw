@@ -6,6 +6,7 @@ use crate::shared_config::SharedConfig;
 use crate::state::StateManager;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::mpsc;
 
 #[test]
@@ -106,15 +107,14 @@ fn build_test_app() -> App {
 
     let raw = format!(
         r#"
+[workspace]
+
 [manager]
 global_rules_file = "{}"
 
-[workspace]
-root = "{}"
-
 docker_dir = "{}"
 
-[[projects]]
+[[workspaces]]
 name = "project-a"
 canonical_path = "{}"
 
@@ -123,7 +123,6 @@ name = "test"
 image = "missing-image:latest"
 "#,
         global_rules_file.display(),
-        workspace_root.display(),
         docker_dir.display(),
         project_path.display()
     );
@@ -205,7 +204,7 @@ fn preflight_missing_image_opens_image_build_pane() {
 fn sidebar_selection_tracks_session_preview() {
     let mut app = build_test_app();
     let items = vec![
-        SidebarItem::Project(0),
+        SidebarItem::Workspace(0),
         SidebarItem::Launch(0),
         SidebarItem::Session(2),
     ];
@@ -317,7 +316,7 @@ fn termios_guard_only_restores_ixon() {
         {
             let _guard = disable_xon_xoff_on_fd(slave).expect("guard should be created for PTY");
             let t_mid = get_termios(slave);
-            assert_eq!((t_mid.c_iflag & libc::IXON) != 0, false);
+            assert!((t_mid.c_iflag & libc::IXON) == 0);
 
             // Mutate an unrelated bit while guard is alive; the guard must not
             // overwrite it on drop.
@@ -331,7 +330,7 @@ fn termios_guard_only_restores_ixon() {
         }
 
         let t_after = get_termios(slave);
-        assert_eq!((t_after.c_iflag & libc::IXON) != 0, true);
+        assert!((t_after.c_iflag & libc::IXON) != 0);
         assert_eq!(
             (t_after.c_lflag & libc::ECHO) != 0,
             expected_echo_enabled,
@@ -347,7 +346,7 @@ fn termios_guard_only_restores_ixon() {
 fn sidebar_navigation_wraps_and_scrolls() {
     let mut app = build_test_app();
     // build_test_app only adds 1 project ("project-a")
-    // sidebar_items() should return [Project(0), Launch(0), Settings(0), NewProject]
+    // sidebar_items() should return [Project(0), Launch(0), Settings(0), NewWorkspace]
 
     // Project rows are section headers: they render, but can't be selected/highlighted.
     app.sidebar_idx = 0;
@@ -356,7 +355,7 @@ fn sidebar_navigation_wraps_and_scrolls() {
     app.handle_sidebar_key(key(KeyCode::Down, KeyModifiers::NONE));
     assert_eq!(app.sidebar_idx, 1);
 
-    // Up -> Wrap to NewProject (index 3), skipping Project(0)
+    // Up -> Wrap to NewWorkspace (index 3), skipping Project(0)
     app.handle_sidebar_key(key(KeyCode::Up, KeyModifiers::NONE));
     assert_eq!(app.sidebar_idx, 3);
 
@@ -364,7 +363,96 @@ fn sidebar_navigation_wraps_and_scrolls() {
     app.handle_sidebar_key(key(KeyCode::Up, KeyModifiers::NONE));
     assert_eq!(app.sidebar_idx, 2);
 
-    // Down -> NewProject
+    // Down -> NewWorkspace
     app.handle_sidebar_key(key(KeyCode::Down, KeyModifiers::NONE));
     assert_eq!(app.sidebar_idx, 3);
+}
+
+#[test]
+fn global_rules_external_edit_does_not_trigger_security_modal() {
+    let mut app = build_test_app();
+    let rules_path = app.config.get().manager.global_rules_file.clone();
+
+    app.tick_base_rules_file_watch();
+    std::fs::write(
+        &rules_path,
+        r#"
+[hostdo]
+default_policy = "prompt"
+"#,
+    )
+    .expect("write base rules");
+
+    std::thread::sleep(Duration::from_millis(800));
+    app.tick_base_rules_file_watch();
+    assert!(app.base_rules_changed.is_none());
+}
+
+#[test]
+fn workspace_rules_external_edit_triggers_security_modal() {
+    let mut app = build_test_app();
+    let rules_path = app.config.get().workspaces[0]
+        .canonical_path
+        .join("void-rules.toml");
+
+    app.tick_base_rules_file_watch();
+    std::fs::write(
+        &rules_path,
+        r#"
+[hostdo]
+default_policy = "prompt"
+"#,
+    )
+    .expect("write workspace rules");
+
+    std::thread::sleep(Duration::from_millis(800));
+    app.tick_base_rules_file_watch();
+    assert!(app.base_rules_changed.is_some());
+    assert_eq!(
+        app.base_rules_changed.as_ref().map(|s| s.path.clone()),
+        Some(rules_path)
+    );
+}
+
+#[test]
+fn global_rules_internal_expected_write_is_not_alerted() {
+    let mut app = build_test_app();
+    let rules_path = app.config.get().manager.global_rules_file.clone();
+    let new_content = r#"
+[hostdo]
+default_policy = "prompt"
+"#
+    .to_string();
+
+    app.note_base_rules_internal_write(new_content.clone());
+    std::fs::write(&rules_path, new_content).expect("write base rules");
+
+    std::thread::sleep(Duration::from_millis(800));
+    app.tick_base_rules_file_watch();
+    assert!(app.base_rules_changed.is_none());
+}
+
+#[test]
+fn global_rules_mismatched_write_is_not_alerted() {
+    let mut app = build_test_app();
+    let rules_path = app.config.get().manager.global_rules_file.clone();
+    app.note_base_rules_internal_write(
+        r#"
+[hostdo]
+default_policy = "deny"
+"#
+        .to_string(),
+    );
+    std::fs::write(
+        &rules_path,
+        r#"
+[hostdo]
+default_policy = "auto"
+"#,
+    )
+    .expect("write base rules");
+
+    std::thread::sleep(Duration::from_millis(800));
+    app.tick_base_rules_file_watch();
+    assert!(app.base_rules_changed.is_none());
 }

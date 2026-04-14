@@ -1,8 +1,55 @@
 use super::*;
 
 impl App {
+    fn watched_rules_paths(cfg: &crate::config::Config) -> Vec<PathBuf> {
+        let mut paths = Vec::with_capacity(cfg.workspaces.len());
+        for workspace in &cfg.workspaces {
+            paths.push(workspace.canonical_path.join("void-rules.toml"));
+        }
+        paths.sort();
+        paths.dedup();
+        paths
+    }
+
+    fn content_hash_for_path(path: &Path) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        match std::fs::read(path) {
+            Ok(bytes) => bytes.hash(&mut hasher),
+            Err(_) => 0u8.hash(&mut hasher),
+        }
+        hasher.finish()
+    }
+
+    pub(crate) fn watched_file_stamp(path: &Path) -> WatchedFileStamp {
+        match std::fs::metadata(path) {
+            Ok(md) => {
+                let (mtime_secs, mtime_nanos) = md
+                    .modified()
+                    .ok()
+                    .and_then(|m| m.duration_since(std::time::UNIX_EPOCH).ok())
+                    .map(|d| (d.as_secs(), d.subsec_nanos()))
+                    .unwrap_or((0, 0));
+                WatchedFileStamp {
+                    exists: true,
+                    size: md.len(),
+                    mtime_secs,
+                    mtime_nanos,
+                    content_hash: Self::content_hash_for_path(path),
+                }
+            }
+            Err(_) => WatchedFileStamp {
+                exists: false,
+                size: 0,
+                mtime_secs: 0,
+                mtime_nanos: 0,
+                content_hash: 0,
+            },
+        }
+    }
+
     pub(crate) fn sidebar_item_is_selectable(item: &SidebarItem) -> bool {
-        !matches!(item, SidebarItem::Project(_))
+        !matches!(item, SidebarItem::Workspace(_))
     }
 
     pub(crate) fn first_selectable_sidebar_idx(items: &[SidebarItem]) -> usize {
@@ -27,13 +74,19 @@ impl App {
         ca_cert_path: String,
     ) -> Result<Self> {
         let cfg = config.get();
+        let watched_rules_stamps = Self::watched_rules_paths(&cfg)
+            .into_iter()
+            .map(|path| {
+                let stamp = Self::watched_file_stamp(&path);
+                (path, stamp)
+            })
+            .collect::<std::collections::HashMap<_, _>>();
 
-        let projects = cfg
-            .projects
+        let workspaces = cfg
+            .workspaces
             .iter()
-            .map(|p| ProjectStatus {
+            .map(|p| WorkspaceStatus {
                 name: p.name.clone(),
-                last_report: None,
             })
             .collect();
 
@@ -54,7 +107,7 @@ impl App {
 
         let rules_path = &cfg.manager.global_rules_file;
         let (hostdo_rule_count, network_rule_count) = crate::rules::load(rules_path)
-            .map(|r| (r.hostdo.commands.len(), r.network.rules.len()))
+            .map(|r| (r.hostdo.commands.len(), r.network.allowlist.len()))
             .unwrap_or((0, 0));
         log.push_front(LogEntry::Msg {
             text: format!(
@@ -74,7 +127,7 @@ impl App {
             session_registry,
             ca_cert_path,
             proxy_state,
-            projects,
+            workspaces,
             pending_exec: vec![],
             pending_stop: vec![],
             pending_net: vec![],
@@ -82,17 +135,17 @@ impl App {
             log_scroll: 0,
             focus: Focus::Sidebar,
             sidebar_idx: Self::first_selectable_sidebar_idx(
-                &cfg.projects
+                &cfg.workspaces
                     .iter()
                     .enumerate()
                     .flat_map(|(pi, _)| {
                         [
-                            SidebarItem::Project(pi),
+                            SidebarItem::Workspace(pi),
                             SidebarItem::Launch(pi),
                             SidebarItem::Settings(pi),
                         ]
                     })
-                    .chain(std::iter::once(SidebarItem::NewProject))
+                    .chain(std::iter::once(SidebarItem::NewWorkspace))
                     .collect::<Vec<_>>(),
             ),
             sidebar_offset: 0,
@@ -108,6 +161,8 @@ impl App {
             build_scroll: 0,
             sessions: vec![],
             new_project: None,
+            remove_workspace_confirm: None,
+            base_rules_changed: None,
             exec_pending_rx,
             stop_pending_rx,
             net_pending_rx,
@@ -122,16 +177,92 @@ impl App {
             last_terminal_esc: None,
             scroll_mode: false,
             terminal_scroll: 0,
-            project_watch: HashMap::new(),
-            last_watch_tick: std::time::Instant::now(),
+            last_base_rules_poll: std::time::Instant::now(),
+            watched_rules_stamps,
+            pending_base_rules_internal_write: std::collections::HashMap::new(),
         })
+    }
+
+    pub(crate) fn tick_base_rules_file_watch(&mut self) {
+        let now = std::time::Instant::now();
+        if now.duration_since(self.last_base_rules_poll) < std::time::Duration::from_millis(750) {
+            return;
+        }
+        self.last_base_rules_poll = now;
+
+        let cfg = self.config.get();
+        let watched_paths = Self::watched_rules_paths(&cfg);
+        let now = std::time::Instant::now();
+
+        self.watched_rules_stamps.retain(|path, _| {
+            watched_paths.iter().any(|watched| watched == path)
+        });
+        self.pending_base_rules_internal_write
+            .retain(|path, pending| {
+                watched_paths.iter().any(|watched| watched == path) && now <= pending.expires_at
+            });
+        for path in &watched_paths {
+            self.watched_rules_stamps
+                .entry(path.clone())
+                .or_insert_with(|| Self::watched_file_stamp(path));
+        }
+
+        for path in watched_paths {
+            let current_stamp = Self::watched_file_stamp(&path);
+            let prev = self
+                .watched_rules_stamps
+                .entry(path.clone())
+                .or_insert_with(|| current_stamp.clone());
+            if current_stamp == *prev {
+                continue;
+            }
+            *prev = current_stamp;
+
+            if let Some(pending) = self.pending_base_rules_internal_write.get(&path).cloned() {
+                if now <= pending.expires_at {
+                    let current = std::fs::read_to_string(&path).unwrap_or_default();
+                    if current == pending.expected_content {
+                        self.pending_base_rules_internal_write.remove(&path);
+                        continue;
+                    }
+                }
+                self.pending_base_rules_internal_write.remove(&path);
+            }
+
+            if self.base_rules_changed.is_none() {
+                self.base_rules_changed = Some(BaseRulesChangedState { path: path.clone() });
+            }
+            self.push_log(
+                format!(
+                    "SECURITY ALERT: rules file changed outside CLI: {}",
+                    path.display()
+                ),
+                true,
+            );
+        }
+    }
+
+    pub(crate) fn note_rules_internal_write(&mut self, path: PathBuf, expected_content: String) {
+        self.pending_base_rules_internal_write.insert(
+            path,
+            PendingBaseRulesInternalWrite {
+                expected_content,
+                expires_at: std::time::Instant::now() + std::time::Duration::from_secs(2),
+            },
+        );
+    }
+
+    #[cfg(test)]
+    pub(crate) fn note_base_rules_internal_write(&mut self, expected_content: String) {
+        let path = self.config.get().manager.global_rules_file.clone();
+        self.note_rules_internal_write(path, expected_content);
     }
 
     pub fn sidebar_items(&self) -> Vec<SidebarItem> {
         let cfg = self.config.get();
         let mut items = Vec::new();
-        for (pi, proj) in cfg.projects.iter().enumerate() {
-            items.push(SidebarItem::Project(pi));
+        for (pi, proj) in cfg.workspaces.iter().enumerate() {
+            items.push(SidebarItem::Workspace(pi));
             for (si, session) in self.sessions.iter().enumerate() {
                 if session.project == proj.name {
                     items.push(SidebarItem::Session(si));
@@ -143,44 +274,24 @@ impl App {
             items.push(SidebarItem::Launch(pi));
             items.push(SidebarItem::Settings(pi));
         }
-        items.push(SidebarItem::NewProject);
+        items.push(SidebarItem::NewWorkspace);
         items
     }
 
     pub fn selected_project_idx(&self) -> Option<usize> {
         match self.sidebar_items().get(self.sidebar_idx) {
-            Some(SidebarItem::Project(pi)) => Some(*pi),
+            Some(SidebarItem::Workspace(pi)) => Some(*pi),
             Some(SidebarItem::Session(si)) => {
                 let cfg = self.config.get();
                 let name = self.sessions.get(*si)?.project.as_str();
-                cfg.projects.iter().position(|p| p.name == name)
+                cfg.workspaces.iter().position(|p| p.name == name)
             }
             Some(SidebarItem::Settings(pi)) => Some(*pi),
             Some(SidebarItem::Launch(pi)) => Some(*pi),
             Some(SidebarItem::Build(pi)) => Some(*pi),
-            Some(SidebarItem::NewProject) => None,
+            Some(SidebarItem::NewWorkspace) => None,
             None => None,
         }
-    }
-
-    pub fn is_project_watching(&self, project_idx: usize) -> bool {
-        self.project_watch
-            .get(&project_idx)
-            .map(|s| s.enabled)
-            .unwrap_or(false)
-    }
-
-    pub fn project_watch_spinner(&self, project_idx: usize) -> Option<&'static str> {
-        if !self.is_project_watching(project_idx) {
-            return None;
-        }
-        const FRAMES: [&str; 2] = ["●", "○"];
-        let phase = self
-            .project_watch
-            .get(&project_idx)
-            .map(|s| s.spinner_phase)
-            .unwrap_or(0);
-        Some(FRAMES[phase % FRAMES.len()])
     }
 
     pub fn pending_for_session(&self, session_idx: usize) -> Vec<usize> {
@@ -285,13 +396,13 @@ impl App {
                     || session.container_id.starts_with(normalized)
                     || normalized.starts_with(&session.container_id))
         }) else {
-            self.push_log(
-                format!(
-                    "killme request for project '{}' could not find container {}",
-                    project, normalized
-                ),
-                true,
-            );
+                self.push_log(
+                    format!(
+                        "killme request for workspace '{}' could not find container {}",
+                        project, normalized
+                    ),
+                    true,
+                );
             return ContainerStopDecision::NotFound;
         };
 
@@ -330,7 +441,7 @@ impl App {
         }
     }
 
-    pub(crate) fn log_project_rules_status(&mut self, project: &crate::config::ProjectConfig) {
+    pub(crate) fn log_project_rules_status(&mut self, project: &crate::config::WorkspaceConfig) {
         let rules_path = project.canonical_path.join("void-rules.toml");
         if !rules_path.exists() {
             self.push_log(
@@ -349,7 +460,7 @@ impl App {
                     "Loaded rules from {} (hostdo: {}, network: {})",
                     rules_path.display(),
                     r.hostdo.commands.len(),
-                    r.network.rules.len()
+                    r.network.allowlist.len()
                 ),
                 false,
             ),

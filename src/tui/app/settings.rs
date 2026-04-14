@@ -3,85 +3,39 @@ use super::*;
 impl App {
     pub(crate) fn refresh_projects_cache(&mut self) {
         let cfg = self.config.get();
-        let mut last_reports: std::collections::HashMap<String, Option<SyncReport>> =
-            std::collections::HashMap::new();
-        for p in &self.projects {
-            last_reports.insert(p.name.clone(), p.last_report.clone());
-        }
-
-        self.projects = cfg
-            .projects
+        self.workspaces = cfg
+            .workspaces
             .iter()
-            .map(|p| ProjectStatus {
+            .map(|p| WorkspaceStatus {
                 name: p.name.clone(),
-                last_report: last_reports.get(&p.name).cloned().unwrap_or(None),
             })
             .collect();
     }
 
-    pub(crate) fn settings_action_rows_for(
-        mode: SyncMode,
-        watching: bool,
-    ) -> Vec<SettingsActionRow> {
-        if mode == SyncMode::Direct {
-            return vec![SettingsActionRow {
-                key: 'r',
-                label: "Reload rules".to_string(),
-                desc: "Rescan and reload void-rules.toml for this project.",
-                action: SettingsAction::ReloadRules,
-            }];
-        }
-
+    pub(crate) fn settings_action_rows_for() -> Vec<SettingsActionRow> {
         vec![
             SettingsActionRow {
-                key: 's',
-                label: "Seed workspace now".to_string(),
-                desc: "Copy canonical files into workspace using sync rules.",
-                action: SettingsAction::Seed,
-            },
-            SettingsActionRow {
-                key: 'p',
-                label: "Pushback workspace now".to_string(),
-                desc: "Copy workspace edits back to canonical using sync rules.",
-                action: SettingsAction::Pushback,
-            },
-            SettingsActionRow {
-                key: if watching { 't' } else { 'w' },
-                label: if watching {
-                    "Stop file system watching".to_string()
-                } else {
-                    "Watch file system (runs Seed first)".to_string()
-                },
-                desc: if watching {
-                    "Disable continuous sync for this project."
-                } else {
-                    "Continuously apply sync behavior based on sync mode."
-                },
-                action: SettingsAction::WatchToggle,
-            },
-            SettingsActionRow {
                 key: 'r',
                 label: "Reload rules".to_string(),
-                desc: "Rescan and reload void-rules.toml for this project.",
+                desc: "Rescan and reload void-rules.toml for this workspace.",
                 action: SettingsAction::ReloadRules,
             },
             SettingsActionRow {
                 key: 'x',
-                label: "Clear workspace".to_string(),
-                desc: "Delete the entire workspace directory for a clean re-seed.",
-                action: SettingsAction::Clear,
+                label: "Remove workspace".to_string(),
+                desc: "Remove from config and stop any running containers in this workspace.",
+                action: SettingsAction::RemoveWorkspace,
             },
         ]
     }
 
     pub(crate) fn settings_action_rows(&self, project_idx: usize) -> Vec<SettingsActionRow> {
         let cfg = self.config.get();
-        let Some(proj) = cfg.projects.get(project_idx) else {
+        let Some(proj) = cfg.workspaces.get(project_idx) else {
             return Vec::new();
         };
-        let mode = crate::config::effective_sync_mode(proj, &cfg.defaults);
-        let watching = self.is_project_watching(project_idx);
-        Self::settings_action_rows_for(mode, watching)
+        let _ = proj;
+        Self::settings_action_rows_for()
     }
 
     pub(crate) fn handle_settings_key(&mut self, key: KeyEvent) {
@@ -117,30 +71,7 @@ impl App {
             }
             KeyCode::Enter | KeyCode::Char('l') => self.run_settings_action(pi),
             KeyCode::Char('r') | KeyCode::Char('R') => self.do_reload_rules(pi),
-            KeyCode::Char('s')
-            | KeyCode::Char('S')
-            | KeyCode::Char('p')
-            | KeyCode::Char('P')
-            | KeyCode::Char('w')
-            | KeyCode::Char('W')
-            | KeyCode::Char('t')
-            | KeyCode::Char('T')
-            | KeyCode::Char('x')
-            | KeyCode::Char('X') => {
-                let cfg = self.config.get();
-                if let Some(proj) = cfg.projects.get(pi) {
-                    if crate::config::effective_sync_mode(proj, &cfg.defaults) != SyncMode::Direct {
-                        match key.code {
-                            KeyCode::Char('s') | KeyCode::Char('S') => self.do_seed_project(pi),
-                            KeyCode::Char('p') | KeyCode::Char('P') => self.do_pushback_project(pi),
-                            KeyCode::Char('w') | KeyCode::Char('W') => self.start_project_watch(pi),
-                            KeyCode::Char('t') | KeyCode::Char('T') => self.stop_project_watch(pi),
-                            KeyCode::Char('x') | KeyCode::Char('X') => self.do_clear_workspace(pi),
-                            _ => {}
-                        }
-                    }
-                }
-            }
+            KeyCode::Char('x') | KeyCode::Char('X') => self.prompt_remove_workspace(pi),
             _ => {}
         }
     }
@@ -151,62 +82,98 @@ impl App {
             return;
         };
         match row.action {
-            SettingsAction::Seed => self.do_seed_project(pi),
-            SettingsAction::Pushback => self.do_pushback_project(pi),
-            SettingsAction::WatchToggle => {
-                if self.is_project_watching(pi) {
-                    self.stop_project_watch(pi);
-                } else {
-                    self.start_project_watch(pi);
-                }
-            }
             SettingsAction::ReloadRules => self.do_reload_rules(pi),
-            SettingsAction::Clear => self.do_clear_workspace(pi),
+            SettingsAction::RemoveWorkspace => self.prompt_remove_workspace(pi),
         }
     }
 
     pub(crate) fn do_reload_rules(&mut self, pi: usize) {
         let cfg = self.config.get();
-        let Some(proj) = cfg.projects.get(pi) else {
+        let Some(proj) = cfg.workspaces.get(pi) else {
             return;
         };
         let proj = proj.clone();
         self.log_project_rules_status(&proj);
     }
 
-    pub(crate) fn do_clear_workspace(&mut self, pi: usize) {
+    pub(crate) fn prompt_remove_workspace(&mut self, pi: usize) {
         let cfg = self.config.get();
-        let Some(proj) = cfg.projects.get(pi) else {
+        let Some(workspace) = cfg.workspaces.get(pi) else {
             return;
         };
-        if crate::config::effective_sync_mode(proj, &cfg.defaults) == SyncMode::Direct {
-            self.push_log(
-                format!(
-                    "clear '{}': disabled for projects.sync.mode='direct' (would affect canonical directory)",
-                    proj.name
-                ),
-                true,
-            );
+        self.remove_workspace_confirm = Some(RemoveWorkspaceConfirmState {
+            workspace_name: workspace.name.clone(),
+        });
+    }
+
+    pub(crate) fn finish_remove_workspace_confirm(&mut self, confirmed: bool) {
+        let Some(state) = self.remove_workspace_confirm.take() else {
             return;
-        }
-        let workspace_path = crate::config::effective_workspace_path(proj, &cfg.workspace);
-        if !workspace_path.exists() {
+        };
+        if !confirmed {
             self.push_log(
-                format!("clear '{}': workspace directory does not exist", proj.name),
+                format!("workspace removal cancelled: '{}'", state.workspace_name),
                 false,
             );
             return;
         }
-        match std::fs::remove_dir_all(&workspace_path) {
-            Ok(()) => self.push_log(
-                format!(
-                    "clear '{}': removed {}",
-                    proj.name,
-                    workspace_path.display()
-                ),
-                false,
-            ),
-            Err(e) => self.push_log(format!("clear '{}' failed: {}", proj.name, e), true),
+
+        for idx in (0..self.sessions.len()).rev() {
+            if self.sessions[idx].project == state.workspace_name {
+                self.close_session(idx);
+            }
+        }
+
+        match crate::new_project::remove_workspace_block(
+            &self.loaded_config_path,
+            &state.workspace_name,
+        ) {
+            Ok(false) => {
+                self.push_log(
+                    format!(
+                        "workspace '{}' was not found in config; nothing removed",
+                        state.workspace_name
+                    ),
+                    true,
+                );
+            }
+            Ok(true) => {
+                let new_config = match crate::config::load(&self.loaded_config_path) {
+                    Ok(c) => c,
+                    Err(e) => {
+                        self.push_log(
+                            format!(
+                                "workspace '{}' removed, but failed to reload config: {}",
+                                state.workspace_name, e
+                            ),
+                            true,
+                        );
+                        return;
+                    }
+                };
+                self.config.set(std::sync::Arc::new(new_config));
+                self.refresh_projects_cache();
+                self.pending_exec.retain(|item| item.project != state.workspace_name);
+                self.pending_stop.retain(|item| item.project != state.workspace_name);
+                self.pending_net
+                    .retain(|item| item.source_project.as_deref() != Some(&state.workspace_name));
+                self.active_settings_project = None;
+                self.focus = Focus::Sidebar;
+                self.settings_cursor = 0;
+                let items = self.sidebar_items();
+                self.sidebar_idx = Self::first_selectable_sidebar_idx(&items);
+                self.update_sidebar_preview(&items);
+                self.push_log(format!("removed workspace '{}'", state.workspace_name), false);
+            }
+            Err(e) => {
+                self.push_log(
+                    format!(
+                        "failed removing workspace '{}' from config: {}",
+                        state.workspace_name, e
+                    ),
+                    true,
+                );
+            }
         }
     }
 
@@ -462,7 +429,7 @@ impl App {
 
         self.build_project_idx = self.selected_project_idx();
         let Some(launch_project_idx) = self.build_project_idx else {
-            self.push_log("cannot start build: no project selected", true);
+            self.push_log("cannot start build: no workspace selected", true);
             return;
         };
         self.start_docker_build(label, shell_command, launch_project_idx, ctr_idx);

@@ -380,8 +380,6 @@ mod tests {
         assert_eq!(sanitize_docker_name(""), "container");
     }
 
-    use uuid; // Add this use statement
-
     #[test]
     fn codex_home_args_mounts_correct_paths() {
         let root = std::env::temp_dir()

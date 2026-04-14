@@ -254,6 +254,7 @@ pub(super) fn deny(reason: String) -> Response {
 ///
 /// Returns `Ok(SessionIdentity)` on success, or an `Err(Response)` with an appropriate
 /// HTTP status code and error message on failure.
+#[allow(clippy::result_large_err)]
 pub(super) fn require_session_identity(
     state: &ServerState,
     headers: &HeaderMap,
@@ -365,12 +366,12 @@ pub(super) struct ResolvedAlias {
 ///
 /// If the first argument of `argv` matches an alias, it expands the alias
 /// command and appends any remaining arguments. It also resolves magic CWD
-/// placeholders (`$CANONICAL`, `$WORKSPACE`) in alias definitions.
+/// placeholder (`$WORKSPACE`) in alias definitions.
 /// The `shell_words::split` crate is used to correctly parse shell-like alias commands.
 pub(super) fn resolve_exec_argv_aliases(
     argv: &[String],
     aliases: &HashMap<String, AliasValue>,
-    canonical_path: &Path,
+    _canonical_path: &Path,
     workspace_path: &Path,
 ) -> std::result::Result<ResolvedAlias, String> {
     if argv.is_empty() {
@@ -400,7 +401,7 @@ pub(super) fn resolve_exec_argv_aliases(
     }
     Ok(ResolvedAlias {
         argv: expanded,
-        cwd_override: alias.resolve_cwd(canonical_path, workspace_path),
+        cwd_override: alias.resolve_cwd(workspace_path),
     })
 }
 
@@ -476,6 +477,54 @@ mod tests {
         .expect("alias should resolve");
         assert_eq!(out.argv, vec!["cargo", "clippy"]);
         assert_eq!(out.cwd_override, Some(PathBuf::from("/workspace/path")));
+    }
+
+    #[test]
+    fn alias_resolution_supports_magic_cwd_subdirs() {
+        let mut aliases = HashMap::new();
+        aliases.insert(
+            "test-ws-root".to_string(),
+            AliasValue::WithOptions {
+                cmd: "cargo test".to_string(),
+                cwd: Some(PathBuf::from("$WORKSPACE/subdir")),
+            },
+        );
+        aliases.insert(
+            "test-ws".to_string(),
+            AliasValue::WithOptions {
+                cmd: "npm test".to_string(),
+                cwd: Some(PathBuf::from("$WORKSPACE/src/app")),
+            },
+        );
+
+        let canonical = Path::new("/canonical/path");
+        let workspace = Path::new("/workspace/path");
+
+        let ws_root_out = resolve_exec_argv_aliases(
+            &["test-ws-root".to_string()],
+            &aliases,
+            canonical,
+            workspace,
+        )
+        .expect("workspace-root alias should resolve");
+        assert_eq!(ws_root_out.argv, vec!["cargo", "test"]);
+        assert_eq!(
+            ws_root_out.cwd_override,
+            Some(PathBuf::from("/workspace/path/subdir"))
+        );
+
+        let ws_out = resolve_exec_argv_aliases(
+            &["test-ws".to_string()],
+            &aliases,
+            canonical,
+            workspace,
+        )
+        .expect("workspace alias should resolve");
+        assert_eq!(ws_out.argv, vec!["npm", "test"]);
+        assert_eq!(
+            ws_out.cwd_override,
+            Some(PathBuf::from("/workspace/path/src/app"))
+        );
     }
 
     #[test]

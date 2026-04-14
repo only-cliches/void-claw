@@ -1,17 +1,15 @@
 #[cfg(test)]
 mod tests {
     use crate::rules::{
-        ApprovalMode, ComposedRules, ConcurrencyPolicy, HostdoRules, NetworkPolicy, NetworkRule,
-        NetworkRules, ProjectRules, RuleCommand, append_auto_approval, host_matches, load,
-        write_rules_file,
+        ApprovalMode, ComposedRules, ConcurrencyPolicy, HostdoRules, NetworkPolicy, NetworkRules,
+        ProjectRules, RuleCommand, append_auto_approval, host_matches, load,
+        parse_network_allowlist_rule, write_rules_file,
     };
     use std::time::{SystemTime, UNIX_EPOCH};
 
     #[test]
     fn parses_current_schema() {
         let raw = r#"
-exclude_patterns = ["node_modules", "dist/**"]
-
 [hostdo]
 default_policy = "prompt"
 
@@ -23,21 +21,14 @@ approval_mode = "auto"
 # Aliases: plain passthrough and with cwd override.
 [hostdo.command_aliases]
 lint = "cargo clippy"
-tests = { cmd = "cargo test", cwd = "$CANONICAL" }
+tests = { cmd = "cargo test", cwd = "$WORKSPACE" }
 
 [network]
-default_policy = "prompt"
-
-[[network.rules]]
-methods = ["*"]
-host = "github.com"
-path_prefix = "/"
-policy = "auto"
+allowlist = ["domain=github.com"]
 "#;
 
         let parsed: Result<ProjectRules, toml::de::Error> = toml::from_str(raw);
         let rules = parsed.expect("expected current schema to parse");
-        assert_eq!(rules.exclude_patterns, vec!["node_modules", "dist/**"]);
         assert_eq!(rules.hostdo.command_aliases.len(), 2);
         assert_eq!(rules.hostdo.command_aliases["lint"].cmd(), "cargo clippy");
         assert_eq!(rules.hostdo.command_aliases["tests"].cmd(), "cargo test");
@@ -52,30 +43,56 @@ cwd = "$WORKSPACE"
 approval_mode = "auto"
 
 [network]
-default_policy = "prompt"
-
-[[network.rules]]
-host = "github.com"
-policy = "allow"
+allowlist = ["domain=github.com policy=allow"]
 "#;
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock before epoch")
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("void-claw-rules-invalid-{nonce}"));
+        std::fs::create_dir_all(&dir).expect("create temp dir");
+        let path = dir.join("void-rules.toml");
+        std::fs::write(&path, raw).expect("write rules");
 
-        let parsed: Result<ProjectRules, toml::de::Error> = toml::from_str(raw);
-        assert!(
-            parsed.is_err(),
-            "legacy schema should be rejected to avoid silent misconfiguration"
-        );
+        let parsed = load(&path);
+        assert!(parsed.is_err(), "legacy schema should be rejected");
+
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_dir(&dir);
     }
 
     #[test]
-    fn wildcard_host_matches_subdomain_and_apex() {
+    fn rejects_exclude_patterns_field() {
+        let raw = r#"
+exclude_patterns = ["node_modules/**"]
+
+[network]
+allowlist = ["domain=github.com"]
+"#;
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock before epoch")
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("void-claw-rules-invalid-excludes-{nonce}"));
+        std::fs::create_dir_all(&dir).expect("create temp dir");
+        let path = dir.join("void-rules.toml");
+        std::fs::write(&path, raw).expect("write rules");
+        let parsed = load(&path);
+        assert!(parsed.is_err(), "exclude_patterns should be rejected");
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_dir(&dir);
+    }
+
+    #[test]
+    fn wildcard_host_matches_subdomain_only() {
         assert!(host_matches("*.oaistatic.com", "cdn.oaistatic.com"));
-        assert!(host_matches("*.oaistatic.com", "oaistatic.com"));
+        assert!(!host_matches("*.oaistatic.com", "oaistatic.com"));
     }
 
     #[test]
     fn wildcard_host_match_is_case_insensitive() {
         assert!(host_matches("*.OpenAI.com", "AUTH.OPENAI.COM"));
-        assert!(host_matches("*.OpenAI.com", "openai.com"));
+        assert!(!host_matches("*.OpenAI.com", "openai.com"));
     }
 
     #[test]
@@ -95,7 +112,7 @@ policy = "allow"
                 command_aliases: Default::default(),
             },
             network_rules: vec![],
-            network_default: NetworkPolicy::Prompt,
+            network_default: NetworkPolicy::Deny,
         };
 
         let matched = rules.find_hostdo_command(&["cargo".into(), "test".into()]);
@@ -114,7 +131,7 @@ policy = "allow"
         let argv = vec!["cargo".to_string(), "test".to_string()];
 
         append_auto_approval(&path, &argv, "$WORKSPACE").expect("first append");
-        append_auto_approval(&path, &argv, "$CANONICAL").expect("second append");
+        append_auto_approval(&path, &argv, "$WORKSPACE").expect("second append");
 
         let rules = load(&path).expect("load rules");
         assert_eq!(rules.hostdo.commands.len(), 1);
@@ -178,10 +195,7 @@ policy = "allow"
                 default_policy: ApprovalMode::Prompt,
                 ..Default::default()
             },
-            network: NetworkRules {
-                default_policy: NetworkPolicy::Auto,
-                ..Default::default()
-            },
+            network: NetworkRules::default(),
             ..Default::default()
         };
         let proj1 = ProjectRules {
@@ -189,10 +203,7 @@ policy = "allow"
                 default_policy: ApprovalMode::Auto,
                 ..Default::default()
             },
-            network: NetworkRules {
-                default_policy: NetworkPolicy::Deny,
-                ..Default::default()
-            },
+            network: NetworkRules::default(),
             ..Default::default()
         };
         let proj2 = ProjectRules {
@@ -200,10 +211,7 @@ policy = "allow"
                 default_policy: ApprovalMode::Deny,
                 ..Default::default()
             },
-            network: NetworkRules {
-                default_policy: NetworkPolicy::Prompt,
-                ..Default::default()
-            },
+            network: NetworkRules::default(),
             ..Default::default()
         };
 
@@ -215,48 +223,34 @@ policy = "allow"
     }
 
     #[test]
-    fn match_network_longest_path_prefix_wins() {
+    fn match_network_allowlist_works() {
         let rules = ComposedRules {
             network_rules: vec![
-                NetworkRule {
-                    methods: vec!["*".into()],
-                    host: "api.example.com".into(),
-                    path_prefix: "/".into(),
-                    policy: NetworkPolicy::Prompt,
-                },
-                NetworkRule {
-                    methods: vec!["*".into()],
-                    host: "api.example.com".into(),
-                    path_prefix: "/api/v2".into(),
-                    policy: NetworkPolicy::Auto,
-                },
-                NetworkRule {
-                    methods: vec!["*".into()],
-                    host: "api.example.com".into(),
-                    path_prefix: "/api/v2/auth".into(),
-                    policy: NetworkPolicy::Deny,
-                },
+                parse_network_allowlist_rule("domain=api.example.com path=/api/v2/*")
+                    .expect("parse rule"),
+                parse_network_allowlist_rule("method=POST domain=api.example.com path=/api/v2/auth/*")
+                    .expect("parse rule"),
             ],
-            network_default: NetworkPolicy::Prompt,
+            network_default: NetworkPolicy::Deny,
             ..Default::default()
         };
 
-        // Matches "/", "/api/v2", and "/api/v2/auth". Most specific (longest) is Deny.
+        // Method-specific match.
         assert_eq!(
-            rules.match_network("GET", "api.example.com", "/api/v2/auth/login"),
-            NetworkPolicy::Deny
+            rules.match_network("POST", "api.example.com", "/api/v2/auth/login"),
+            NetworkPolicy::Auto
         );
 
-        // Matches "/" and "/api/v2". Longest is Auto.
+        // Path wildcard match.
         assert_eq!(
             rules.match_network("GET", "api.example.com", "/api/v2/user"),
             NetworkPolicy::Auto
         );
 
-        // Matches only "/". Policy is Prompt.
+        // Unmatched path is denied by default.
         assert_eq!(
             rules.match_network("GET", "api.example.com", "/other"),
-            NetworkPolicy::Prompt
+            NetworkPolicy::Deny
         );
     }
 
@@ -267,7 +261,7 @@ policy = "allow"
                 commands: vec![
                     RuleCommand {
                         argv: vec!["ls".into()],
-                        cwd: "$CANONICAL".into(),
+                        cwd: "$WORKSPACE".into(),
                         ..Default::default()
                     },
                     RuleCommand {
@@ -286,10 +280,10 @@ policy = "allow"
             ..Default::default()
         };
 
-        rules.expand_cwd_vars("/home/user/project", "/tmp/ws/project");
+        rules.expand_cwd_vars("/home/user/project");
 
         assert_eq!(rules.hostdo.commands[0].cwd, "/home/user/project");
-        assert_eq!(rules.hostdo.commands[1].cwd, "/tmp/ws/project/subdir");
+        assert_eq!(rules.hostdo.commands[1].cwd, "/home/user/project/subdir");
         assert_eq!(rules.hostdo.commands[2].cwd, "/absolute/path");
     }
 
@@ -402,11 +396,11 @@ policy = "allow"
             ..Default::default()
         };
 
-        let matched = rules.find_hostdo_command(&vec![]);
+        let matched = rules.find_hostdo_command(&[]);
         assert!(matched.is_some());
         assert_eq!(matched.unwrap().approval_mode, ApprovalMode::Deny);
 
-        let matched = rules.find_hostdo_command(&vec!["ls".into()]);
+        let matched = rules.find_hostdo_command(&["ls".into()]);
         assert!(matched.is_some());
         assert_eq!(matched.unwrap().approval_mode, ApprovalMode::Auto);
     }

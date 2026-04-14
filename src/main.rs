@@ -25,7 +25,6 @@ mod rules;
 mod server;
 mod shared_config;
 mod state;
-mod sync;
 mod telemetry;
 mod tui;
 
@@ -70,7 +69,6 @@ async fn main() -> Result<()> {
 
     let config = config::load(&config_path)?;
     init::ensure_docker_assets(&config.docker_dir)?;
-    ensure_workspace_root(&config.workspace.root)?;
 
     // Bail early if docker is not available.
     if which::which("docker").is_err() {
@@ -238,34 +236,6 @@ fn prompt_config_creation_choice() -> Result<ConfigCreationChoice> {
         _ => ConfigCreationChoice::Cancel,
     };
     Ok(choice)
-}
-
-fn ensure_workspace_root(root: &PathBuf) -> Result<()> {
-    if root.exists() {
-        if !root.is_dir() {
-            anyhow::bail!(
-                "workspace.root exists but is not a directory: {}",
-                root.display()
-            );
-        }
-        return Ok(());
-    }
-
-    println!("workspace.root does not exist: {}", root.display());
-    print!("Create it now? [y/N]: ");
-    io::stdout().flush()?;
-
-    let mut input = String::new();
-    io::stdin().read_line(&mut input)?;
-    let yes = matches!(input.trim().to_ascii_lowercase().as_str(), "y" | "yes");
-    if !yes {
-        anyhow::bail!("workspace.root is missing; exiting");
-    }
-
-    std::fs::create_dir_all(root).map_err(|e| {
-        anyhow::anyhow!("failed to create workspace.root '{}': {e}", root.display())
-    })?;
-    Ok(())
 }
 
 #[cfg(test)]

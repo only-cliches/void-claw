@@ -1,8 +1,9 @@
 #[cfg(test)]
 mod tests {
     use crate::config::{
-        Config, ContainerMount, DefaultsConfig, MountMode, combined_excludes, load,
-        load_composed_rules_for_project, merge_mounts, merge_unique_strings,
+        Config, ContainerMount, DefaultsConfig, MountMode, SyncMode,
+        effective_mount_source_path, effective_sync_mode, effective_workspace_path, load,
+        load_composed_rules_for_workspace, merge_mounts, merge_unique_strings,
     };
     use crate::rules::{ApprovalMode, NetworkPolicy};
     use std::fs;
@@ -29,15 +30,13 @@ mod tests {
             r#"
 docker_dir = "{}"
 
+[workspace]
+
 [manager]
 global_rules_file = "{}"
-
-[workspace]
-root = "{}"
 "#,
             workspace_root.display(),
             global_rules_file.display(),
-            workspace_root.display(),
         );
         if let (Some(name), Some(path)) = (project_name, project_path) {
             raw.push_str(&format!(
@@ -67,18 +66,16 @@ canonical_path = "{}"
             r#"
 docker_dir = "{}"
 
+[workspace]
+
 [manager]
 global_rules_file = "{}"
-
-[workspace]
-root = "{}"
 
 [defaults.ui]
 sidebar_width = 28
 "#,
             docker_dir.display(),
-            root.join("global-rules.toml").display(),
-            root.join("workspace").display()
+            root.join("global-rules.toml").display()
         );
         fs::write(&cfg_path, raw).expect("write config");
         let cfg = load(&cfg_path).expect("config should load");
@@ -95,15 +92,13 @@ sidebar_width = 28
             r#"
 docker_dir = "{}"
 
+[workspace]
+
 [manager]
 global_rules_file = "{}"
-
-[workspace]
-root = "{}"
 "#,
             docker_dir.display(),
-            root.join("global-rules.toml").display(),
-            root.join("workspace").display()
+            root.join("global-rules.toml").display()
         );
         fs::write(&cfg_path, raw).expect("write config");
 
@@ -135,7 +130,7 @@ root = "{}"
 default_policy = "deny"
 
 [network]
-default_policy = "auto"
+allowlist = ["domain=github.com"]
 "#,
         )
         .expect("write global rules");
@@ -143,9 +138,9 @@ default_policy = "auto"
         let config = build_config(&global, &workspace, Some("project-a"), Some(&project_path));
 
         let composed =
-            load_composed_rules_for_project(&config, Some("project-a")).expect("compose rules");
+            load_composed_rules_for_workspace(&config, Some("project-a")).expect("compose rules");
         assert_eq!(composed.hostdo.default_policy, ApprovalMode::Deny);
-        assert_eq!(composed.network_default, NetworkPolicy::Prompt);
+        assert_eq!(composed.network_default, NetworkPolicy::Deny);
     }
 
     #[test]
@@ -156,9 +151,9 @@ default_policy = "auto"
         fs::create_dir_all(&workspace).expect("create workspace");
         let config = build_config(&global, &workspace, None, None);
 
-        let composed = load_composed_rules_for_project(&config, None).expect("compose rules");
+        let composed = load_composed_rules_for_workspace(&config, None).expect("compose rules");
         assert_eq!(composed.hostdo.default_policy, ApprovalMode::Prompt);
-        assert_eq!(composed.network_default, NetworkPolicy::Prompt);
+        assert_eq!(composed.network_default, NetworkPolicy::Deny);
     }
 
     #[test]
@@ -177,7 +172,7 @@ default_policy = "auto"
 default_policy = "auto"
 
 [network]
-default_policy = "deny"
+allowlist = ["domain=api.openai.com"]
 "#,
         )
         .expect("write global rules");
@@ -189,7 +184,7 @@ default_policy = "deny"
 default_policy = "prompt"
 
 [network]
-default_policy = "auto"
+allowlist = ["domain=github.com"]
 "#,
         )
         .expect("write project rules");
@@ -197,7 +192,7 @@ default_policy = "auto"
         let config = build_config(&global, &workspace, Some("project-b"), Some(&project_path));
 
         let composed =
-            load_composed_rules_for_project(&config, Some("project-b")).expect("compose rules");
+            load_composed_rules_for_workspace(&config, Some("project-b")).expect("compose rules");
         assert_eq!(composed.hostdo.default_policy, ApprovalMode::Prompt);
         assert_eq!(composed.network_default, NetworkPolicy::Deny);
     }
@@ -212,11 +207,10 @@ default_policy = "auto"
             r#"
 docker_dir = "{}"
 
+[workspace]
+
 [manager]
 global_rules_file = "{}"
-
-[workspace]
-root = "{}"
 
 [[projects]]
 name = "missing-proj"
@@ -224,7 +218,6 @@ canonical_path = "{}"
 "#,
             docker_dir.display(),
             root.join("global-rules.toml").display(),
-            root.join("workspace").display(),
             root.join("does-not-exist").display()
         );
         fs::write(&cfg_path, raw).expect("write config");
@@ -236,19 +229,47 @@ canonical_path = "{}"
     }
 
     #[test]
+    fn load_rejects_workspace_exclude_patterns_field() {
+        let root = unique_temp_dir("reject-workspace-exclude-patterns");
+        let cfg_path = root.join("void-claw.toml");
+        let canonical_path = root.join("repo");
+        let docker_dir = root.join("docker-root");
+        fs::create_dir_all(&canonical_path).expect("create repo");
+        fs::create_dir_all(&docker_dir).expect("create docker dir");
+        let raw = format!(
+            r#"
+docker_dir = "{}"
+
+[workspace]
+
+[manager]
+global_rules_file = "{}"
+
+[[workspaces]]
+name = "a"
+canonical_path = "{}"
+exclude_patterns = ["node_modules/**"]
+"#,
+            docker_dir.display(),
+            root.join("global-rules.toml").display(),
+            canonical_path.display(),
+        );
+        fs::write(&cfg_path, raw).expect("write config");
+        load(&cfg_path).expect_err("config should reject workspace exclude_patterns");
+    }
+
+    #[test]
     fn load_fails_when_docker_dir_is_missing() {
         let root = unique_temp_dir("missing-docker-dir");
         let cfg_path = root.join("void-claw.toml");
         let raw = format!(
             r#"
+[workspace]
+
 [manager]
 global_rules_file = "{}"
-
-[workspace]
-root = "{}"
 "#,
-            root.join("global-rules.toml").display(),
-            root.join("workspace").display()
+            root.join("global-rules.toml").display()
         );
         fs::write(&cfg_path, raw).expect("write config");
         let err = load(&cfg_path).expect_err("config load should fail");
@@ -271,15 +292,13 @@ root = "{}"
             r#"
 docker_dir = "{}"
 
+[workspace]
+
 [manager]
 global_rules_file = "{}"
-
-[workspace]
-root = "{}"
 "#,
             docker_dir.display(),
-            root.join("global-rules.toml").display(),
-            root.join("workspace").display()
+            root.join("global-rules.toml").display()
         );
         fs::write(&cfg_path, raw).expect("write config");
         let cfg = load(&cfg_path).expect("config should load");
@@ -296,15 +315,13 @@ root = "{}"
             r#"
 docker_dir = "{}"
 
+[workspace]
+
 [manager]
 global_rules_file = "{}"
-
-[workspace]
-root = "{}"
 "#,
             docker_dir.display(),
-            root.join("global-rules.toml").display(),
-            root.join("workspace").display()
+            root.join("global-rules.toml").display()
         );
         fs::write(&cfg_path, raw).expect("write config");
         let err = load(&cfg_path).expect_err("config load should fail");
@@ -325,23 +342,52 @@ root = "{}"
             r#"
 docker_dir = "{}"
 
+[workspace]
+
 [manager]
 global_rules_file = "{}"
-
-[workspace]
-root = "{}"
 "#,
             docker_dir.display(),
-            root.join("global-rules.toml").display(),
-            root.join("workspace").display()
+            root.join("global-rules.toml").display()
         );
         fs::write(&cfg_path, raw).expect("write config");
         let cfg = load(&cfg_path).expect("config should load");
-        assert!(cfg.projects.is_empty());
+        assert!(cfg.workspaces.is_empty());
     }
 
     #[test]
-    fn load_fails_when_direct_mode_has_disposable_true() {
+    fn load_accepts_workspaces_alias() {
+        let root = unique_temp_dir("workspaces-alias");
+        let cfg_path = root.join("void-claw.toml");
+        let docker_dir = root.join("docker-root");
+        let workspace_path = root.join("workspace-a");
+        fs::create_dir_all(&docker_dir).expect("create docker dir");
+        fs::create_dir_all(&workspace_path).expect("create workspace dir");
+
+        let raw = format!(
+            r#"
+docker_dir = "{}"
+[workspace]
+
+[manager]
+global_rules_file = "{}"
+[[workspaces]]
+name = "workspace-a"
+canonical_path = "{}"
+"#,
+            docker_dir.display(),
+            root.join("global-rules.toml").display(),
+            workspace_path.display()
+        );
+        fs::write(&cfg_path, raw).expect("write config");
+        let cfg = load(&cfg_path).expect("config should load");
+        assert_eq!(cfg.workspaces.len(), 1);
+        assert_eq!(cfg.workspaces[0].name, "workspace-a");
+        assert_eq!(cfg.workspaces[0].canonical_path, workspace_path);
+    }
+
+    #[test]
+    fn effective_mode_is_always_direct() {
         let root = unique_temp_dir("direct-disposable");
         let cfg_path = root.join("void-claw.toml");
         let docker_dir = root.join("docker-root");
@@ -352,11 +398,10 @@ root = "{}"
         let raw = format!(
             r#"
 docker_dir = "{}"
+[workspace]
+
 [manager]
 global_rules_file = "{}"
-[workspace]
-root = "{}"
-
 [[projects]]
 name = "project-a"
 canonical_path = "{}"
@@ -366,20 +411,16 @@ mode = "direct"
 "#,
             docker_dir.display(),
             root.join("global-rules.toml").display(),
-            root.join("workspace").display(),
             project_path.display()
         );
         fs::write(&cfg_path, raw).expect("write config");
-        let err = load(&cfg_path).expect_err("config load should fail");
-        assert!(
-            err.to_string()
-                .contains("disposable=true is not allowed with projects.sync.mode='direct'"),
-            "unexpected error: {err}"
-        );
+        let cfg = load(&cfg_path).expect("config should load");
+        let proj = cfg.workspaces.first().expect("project present");
+        assert_eq!(effective_sync_mode(proj, &cfg.defaults), SyncMode::Direct);
     }
 
     #[test]
-    fn load_fails_when_direct_mode_has_explicit_workspace_path() {
+    fn workspace_and_mount_paths_always_resolve_to_canonical() {
         let root = unique_temp_dir("direct-workspace-path");
         let cfg_path = root.join("void-claw.toml");
         let docker_dir = root.join("docker-root");
@@ -390,11 +431,10 @@ mode = "direct"
         let raw = format!(
             r#"
 docker_dir = "{}"
+[workspace]
+
 [manager]
 global_rules_file = "{}"
-[workspace]
-root = "{}"
-
 [[projects]]
 name = "project-a"
 canonical_path = "{}"
@@ -405,47 +445,20 @@ mode = "direct"
 "#,
             docker_dir.display(),
             root.join("global-rules.toml").display(),
-            root.join("workspace").display(),
             project_path.display(),
             root.join("some-other-place").display()
         );
         fs::write(&cfg_path, raw).expect("write config");
-        let err = load(&cfg_path).expect_err("config load should fail");
-        assert!(
-            err.to_string().contains("workspace_path must be omitted"),
-            "unexpected error: {err}"
+        let cfg = load(&cfg_path).expect("config should load");
+        let proj = cfg.workspaces.first().expect("project present");
+        assert_eq!(
+            effective_workspace_path(proj, &cfg.workspace),
+            proj.canonical_path
         );
-    }
-
-    #[test]
-    fn combined_excludes_include_project_rules_file_patterns() {
-        let root = unique_temp_dir("combined-excludes-rules");
-        let project_path = root.join("project-c");
-        fs::create_dir_all(&project_path).expect("create project path");
-        fs::write(
-            project_path.join("void-rules.toml"),
-            r#"
-exclude_patterns = ["node_modules", "dist/**"]
-"#,
-        )
-        .expect("write project rules");
-
-        let config = build_config(
-            &root.join("global-rules.toml"),
-            &root.join("workspace"),
-            Some("project-c"),
-            Some(&project_path),
+        assert_eq!(
+            effective_mount_source_path(proj, &cfg.workspace, &cfg.defaults),
+            proj.canonical_path
         );
-        let project = config
-            .projects
-            .iter()
-            .find(|p| p.name == "project-c")
-            .expect("project config");
-
-        let excludes = combined_excludes(project, &config.defaults).expect("combined excludes");
-        assert!(excludes.iter().any(|p| p == "node_modules"));
-        assert!(excludes.iter().any(|p| p == "dist/**"));
-        assert!(excludes.iter().any(|p| p == ".git"));
     }
 
     // New tests for merge_unique_strings

@@ -3009,7 +3009,6 @@ dependencies = [
  "url",
  "uuid",
  "vt100",
- "walkdir",
  "webpki-roots 0.26.11",
  "which",
 ]

@@ -2,9 +2,7 @@ use anyhow::Context;
 use std::path::Path;
 
 use crate::config::AgentKind;
-use crate::rules::{
-    ApprovalMode, HostdoRules, NetworkPolicy, NetworkRule, NetworkRules, ProjectRules,
-};
+use crate::rules::{ApprovalMode, HostdoRules, NetworkRules, ProjectRules};
 // ── void-rules.toml starter ───────────────────────────────────────────────────
 
 /// Generate a starter `void-rules.toml` for the given agent kind.
@@ -15,196 +13,51 @@ use crate::rules::{
 /// approves unexpected destinations.
 /// Build the initial `void-rules.toml` template for a given agent runtime.
 pub fn generate_starter_project_rules(agent: &AgentKind) -> ProjectRules {
-    let mut rules = vec![
-        NetworkRule {
-            methods: vec!["*".to_string()],
-            host: "github.com".to_string(),
-            path_prefix: "/".to_string(),
-            policy: NetworkPolicy::Auto,
-        },
-        NetworkRule {
-            methods: vec!["*".to_string()],
-            host: "api.github.com".to_string(),
-            path_prefix: "/".to_string(),
-            policy: NetworkPolicy::Auto,
-        },
-        NetworkRule {
-            methods: vec!["*".to_string()],
-            host: "raw.githubusercontent.com".to_string(),
-            path_prefix: "/".to_string(),
-            policy: NetworkPolicy::Auto,
-        },
-        NetworkRule {
-            methods: vec!["*".to_string()],
-            host: "objects.githubusercontent.com".to_string(),
-            path_prefix: "/".to_string(),
-            policy: NetworkPolicy::Auto,
-        },
-        NetworkRule {
-            methods: vec!["*".to_string()],
-            host: "registry.npmjs.org".to_string(),
-            path_prefix: "/".to_string(),
-            policy: NetworkPolicy::Auto,
-        },
-        NetworkRule {
-            methods: vec!["*".to_string()],
-            host: "*.npmjs.org".to_string(),
-            path_prefix: "/".to_string(),
-            policy: NetworkPolicy::Auto,
-        },
-        NetworkRule {
-            methods: vec!["*".to_string()],
-            host: "pypi.org".to_string(),
-            path_prefix: "/".to_string(),
-            policy: NetworkPolicy::Auto,
-        },
-        NetworkRule {
-            methods: vec!["*".to_string()],
-            host: "files.pythonhosted.org".to_string(),
-            path_prefix: "/".to_string(),
-            policy: NetworkPolicy::Auto,
-        },
-        NetworkRule {
-            methods: vec!["*".to_string()],
-            host: "crates.io".to_string(),
-            path_prefix: "/".to_string(),
-            policy: NetworkPolicy::Auto,
-        },
-        NetworkRule {
-            methods: vec!["*".to_string()],
-            host: "static.crates.io".to_string(),
-            path_prefix: "/".to_string(),
-            policy: NetworkPolicy::Auto,
-        },
-        NetworkRule {
-            methods: vec!["*".to_string()],
-            host: "index.crates.io".to_string(),
-            path_prefix: "/".to_string(),
-            policy: NetworkPolicy::Auto,
-        },
-        NetworkRule {
-            methods: vec!["*".to_string()],
-            host: "rubygems.org".to_string(),
-            path_prefix: "/".to_string(),
-            policy: NetworkPolicy::Auto,
-        },
-        NetworkRule {
-            methods: vec!["*".to_string()],
-            host: "api.rubygems.org".to_string(),
-            path_prefix: "/".to_string(),
-            policy: NetworkPolicy::Auto,
-        },
-        NetworkRule {
-            methods: vec!["*".to_string()],
-            host: "pkg.go.dev".to_string(),
-            path_prefix: "/".to_string(),
-            policy: NetworkPolicy::Auto,
-        },
-        NetworkRule {
-            methods: vec!["*".to_string()],
-            host: "sum.golang.org".to_string(),
-            path_prefix: "/".to_string(),
-            policy: NetworkPolicy::Auto,
-        },
-        NetworkRule {
-            methods: vec!["*".to_string()],
-            host: "proxy.golang.org".to_string(),
-            path_prefix: "/".to_string(),
-            policy: NetworkPolicy::Auto,
-        },
+    let mut allowlist = vec![
+        "domain=github.com".to_string(),
+        "domain=api.github.com".to_string(),
+        "domain=raw.githubusercontent.com".to_string(),
+        "domain=objects.githubusercontent.com".to_string(),
+        "domain=registry.npmjs.org".to_string(),
+        "domain=*.npmjs.org".to_string(),
+        "domain=pypi.org".to_string(),
+        "domain=files.pythonhosted.org".to_string(),
+        "domain=crates.io".to_string(),
+        "domain=static.crates.io".to_string(),
+        "domain=index.crates.io".to_string(),
+        "domain=rubygems.org".to_string(),
+        "domain=api.rubygems.org".to_string(),
+        "domain=pkg.go.dev".to_string(),
+        "domain=sum.golang.org".to_string(),
+        "domain=proxy.golang.org".to_string(),
     ];
 
     match agent {
         AgentKind::Claude => {
-            rules.extend([
-                NetworkRule {
-                    methods: vec!["*".to_string()],
-                    host: "api.anthropic.com".to_string(),
-                    path_prefix: "/".to_string(),
-                    policy: NetworkPolicy::Auto,
-                },
-                NetworkRule {
-                    methods: vec!["*".to_string()],
-                    host: "statsig.anthropic.com".to_string(),
-                    path_prefix: "/".to_string(),
-                    policy: NetworkPolicy::Auto,
-                },
-                NetworkRule {
-                    methods: vec!["*".to_string()],
-                    host: "sentry.io".to_string(),
-                    path_prefix: "/".to_string(),
-                    policy: NetworkPolicy::Auto,
-                },
+            allowlist.extend([
+                "domain=api.anthropic.com".to_string(),
+                "domain=statsig.anthropic.com".to_string(),
+                "domain=sentry.io".to_string(),
             ]);
         }
         AgentKind::Codex => {
-            rules.push(NetworkRule {
-                methods: vec!["*".to_string()],
-                host: "api.openai.com".to_string(),
-                path_prefix: "/".to_string(),
-                policy: NetworkPolicy::Auto,
-            });
+            allowlist.push("domain=api.openai.com".to_string());
         }
         AgentKind::Gemini => {
-            rules.extend([
-                NetworkRule {
-                    methods: vec!["*".to_string()],
-                    host: "generativelanguage.googleapis.com".to_string(),
-                    path_prefix: "/".to_string(),
-                    policy: NetworkPolicy::Auto,
-                },
-                NetworkRule {
-                    methods: vec!["*".to_string()],
-                    host: "aistudio.google.com".to_string(),
-                    path_prefix: "/".to_string(),
-                    policy: NetworkPolicy::Auto,
-                },
-                NetworkRule {
-                    methods: vec!["*".to_string()],
-                    host: "accounts.google.com".to_string(),
-                    path_prefix: "/".to_string(),
-                    policy: NetworkPolicy::Auto,
-                },
-                NetworkRule {
-                    methods: vec!["*".to_string()],
-                    host: "oauth2.googleapis.com".to_string(),
-                    path_prefix: "/".to_string(),
-                    policy: NetworkPolicy::Auto,
-                },
-                NetworkRule {
-                    methods: vec!["*".to_string()],
-                    host: "www.googleapis.com".to_string(),
-                    path_prefix: "/".to_string(),
-                    policy: NetworkPolicy::Auto,
-                },
+            allowlist.extend([
+                "domain=generativelanguage.googleapis.com".to_string(),
+                "domain=aistudio.google.com".to_string(),
+                "domain=accounts.google.com".to_string(),
+                "domain=oauth2.googleapis.com".to_string(),
+                "domain=www.googleapis.com".to_string(),
             ]);
         }
         AgentKind::Opencode => {
-            rules.extend([
-                NetworkRule {
-                    methods: vec!["*".to_string()],
-                    host: "api.anthropic.com".to_string(),
-                    path_prefix: "/".to_string(),
-                    policy: NetworkPolicy::Auto,
-                },
-                NetworkRule {
-                    methods: vec!["*".to_string()],
-                    host: "api.openai.com".to_string(),
-                    path_prefix: "/".to_string(),
-                    policy: NetworkPolicy::Auto,
-                },
-                NetworkRule {
-                    methods: vec!["*".to_string()],
-                    host: "openrouter.ai".to_string(),
-                    path_prefix: "/".to_string(),
-                    policy: NetworkPolicy::Auto,
-                },
-                NetworkRule {
-                    methods: vec!["*".to_string()],
-                    host: "api.openrouter.ai".to_string(),
-                    path_prefix: "/".to_string(),
-                    policy: NetworkPolicy::Auto,
-                },
+            allowlist.extend([
+                "domain=api.anthropic.com".to_string(),
+                "domain=api.openai.com".to_string(),
+                "domain=openrouter.ai".to_string(),
+                "domain=api.openrouter.ai".to_string(),
             ]);
         }
         AgentKind::None => {}
@@ -212,15 +65,11 @@ pub fn generate_starter_project_rules(agent: &AgentKind) -> ProjectRules {
 
     ProjectRules {
         llm_instructions: None,
-        exclude_patterns: vec![],
         hostdo: HostdoRules {
             default_policy: ApprovalMode::Prompt,
             ..HostdoRules::default()
         },
-        network: NetworkRules {
-            default_policy: NetworkPolicy::Prompt,
-            rules,
-        },
+        network: NetworkRules { allowlist },
     }
 }
 
@@ -347,14 +196,9 @@ mod tests {
     #[test]
     fn gemini_starter_rules_include_google_hosts() {
         let rules = generate_starter_project_rules(&AgentKind::Gemini);
-        let hosts: Vec<&str> = rules
-            .network
-            .rules
-            .iter()
-            .map(|rule| rule.host.as_str())
-            .collect();
-        assert!(hosts.contains(&"generativelanguage.googleapis.com"));
-        assert!(hosts.contains(&"accounts.google.com"));
-        assert!(hosts.contains(&"oauth2.googleapis.com"));
+        let allowlist = rules.network.allowlist;
+        assert!(allowlist.iter().any(|r| r == "domain=generativelanguage.googleapis.com"));
+        assert!(allowlist.iter().any(|r| r == "domain=accounts.google.com"));
+        assert!(allowlist.iter().any(|r| r == "domain=oauth2.googleapis.com"));
     }
 }

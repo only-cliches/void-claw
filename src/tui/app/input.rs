@@ -49,6 +49,25 @@ impl App {
             return;
         }
 
+        if self.base_rules_changed.is_some() {
+            match key.code {
+                KeyCode::Enter | KeyCode::Esc | KeyCode::Char('y') | KeyCode::Char('n') => {
+                    self.base_rules_changed = None;
+                }
+                _ => {}
+            }
+            return;
+        }
+
+        if self.remove_workspace_confirm.is_some() {
+            match key.code {
+                KeyCode::Char('y') | KeyCode::Enter => self.finish_remove_workspace_confirm(true),
+                KeyCode::Char('n') | KeyCode::Esc => self.finish_remove_workspace_confirm(false),
+                _ => {}
+            }
+            return;
+        }
+
         if let Some(idx) = self.active_exec_modal_idx() {
             match key.code {
                 KeyCode::Char('y') | KeyCode::Enter => self.approve_exec(idx, false),
@@ -97,7 +116,7 @@ impl App {
             Focus::Settings => self.handle_settings_key(key),
             Focus::ContainerPicker => self.handle_picker_key(key),
             Focus::ImageBuild => self.handle_build_key(key),
-            Focus::NewProject => self.handle_new_project_key(key),
+            Focus::NewWorkspace => self.handle_new_project_key(key),
         }
     }
 
@@ -111,6 +130,7 @@ impl App {
                 self.focus = Focus::Sidebar;
             }
             Focus::Settings => {
+                self.remove_workspace_confirm = None;
                 self.active_settings_project = None;
                 self.focus = Focus::Sidebar;
             }
@@ -127,7 +147,7 @@ impl App {
                     self.focus = Focus::Sidebar;
                 }
             }
-            Focus::NewProject => {
+            Focus::NewWorkspace => {
                 self.new_project = None;
                 self.focus = Focus::Sidebar;
             }
@@ -229,7 +249,7 @@ impl App {
 
     pub(crate) fn handle_sidebar_enter(&mut self, items: &[SidebarItem]) {
         match items.get(self.sidebar_idx).cloned() {
-            Some(SidebarItem::Project(_)) => {
+            Some(SidebarItem::Workspace(_)) => {
                 // do nothing
             }
             Some(SidebarItem::Settings(pi)) => {
@@ -254,24 +274,22 @@ impl App {
                 self.focus = Focus::Terminal;
                 self.active_settings_project = None;
             }
-            Some(SidebarItem::NewProject) => self.open_new_project(),
+            Some(SidebarItem::NewWorkspace) => self.open_new_project(),
             None => {}
         }
     }
 
-    const NEW_PROJECT_ROW_COUNT: usize = 6;
+    const NEW_PROJECT_ROW_COUNT: usize = 5;
 
     pub(crate) fn open_new_project(&mut self) {
-        let cfg = self.config.get();
-        self.new_project = Some(NewProjectState {
+        self.new_project = Some(NewWorkspaceState {
             cursor: 0,
             name: String::new(),
-            canonical_dir: String::new(),
-            sync_mode: cfg.defaults.sync.mode.clone(),
+            workspace_dir: String::new(),
             project_type: crate::new_project::ProjectType::None,
             error: None,
         });
-        self.focus = Focus::NewProject;
+        self.focus = Focus::NewWorkspace;
         self.active_session = None;
         self.active_settings_project = None;
         self.container_picker = None;
@@ -302,30 +320,29 @@ impl App {
             KeyCode::Down | KeyCode::Char('j') | KeyCode::Tab => {
                 state.cursor = (state.cursor + 1).min(Self::NEW_PROJECT_ROW_COUNT - 1);
             }
-            KeyCode::Left => match state.cursor {
-                2 => state.sync_mode = prev_sync_mode(&state.sync_mode),
-                3 => state.project_type = state.project_type.prev(),
-                _ => {}
+            KeyCode::Left => {
+                if state.cursor == 2 {
+                    state.project_type = state.project_type.prev();
+                }
             },
-            KeyCode::Right => match state.cursor {
-                2 => state.sync_mode = next_sync_mode(&state.sync_mode),
-                3 => state.project_type = state.project_type.next(),
-                _ => {}
+            KeyCode::Right => {
+                if state.cursor == 2 {
+                    state.project_type = state.project_type.next();
+                }
             },
             KeyCode::Backspace => match state.cursor {
                 0 => {
                     state.name.pop();
                 }
                 1 => {
-                    state.canonical_dir.pop();
+                    state.workspace_dir.pop();
                 }
                 _ => {}
             },
             KeyCode::Enter => match state.cursor {
-                2 => state.sync_mode = next_sync_mode(&state.sync_mode),
-                3 => state.project_type = state.project_type.next(),
-                4 => self.submit_new_project(),
-                5 => {
+                2 => state.project_type = state.project_type.next(),
+                3 => self.submit_new_project(),
+                4 => {
                     self.new_project = None;
                     self.focus = Focus::Sidebar;
                 }
@@ -345,19 +362,18 @@ impl App {
         }
         match state.cursor {
             0 => state.name.push_str(&cleaned),
-            1 => state.canonical_dir.push_str(&cleaned),
+            1 => state.workspace_dir.push_str(&cleaned),
             _ => {}
         }
     }
 
     pub(crate) fn submit_new_project(&mut self) {
-        let Some((name, canonical_raw, sync_mode, project_type)) =
+        let Some((name, workspace_raw, project_type)) =
             self.new_project.as_mut().map(|state| {
                 state.error = None;
                 (
                     state.name.trim().to_string(),
-                    state.canonical_dir.trim().to_string(),
-                    state.sync_mode.clone(),
+                    state.workspace_dir.trim().to_string(),
                     state.project_type,
                 )
             })
@@ -366,49 +382,49 @@ impl App {
         };
 
         if name.is_empty() {
-            self.set_new_project_error("project name is required".to_string());
+            self.set_new_project_error("workspace name is required".to_string());
             return;
         }
-        if canonical_raw.is_empty() {
-            self.set_new_project_error("canonical dir is required".to_string());
+        if workspace_raw.is_empty() {
+            self.set_new_project_error("workspace dir is required".to_string());
             return;
         }
 
-        let canonical_path = match crate::config::expand_path(std::path::Path::new(&canonical_raw))
+        let workspace_path = match crate::config::expand_path(std::path::Path::new(&workspace_raw))
         {
             Ok(p) => p,
             Err(e) => {
-                self.set_new_project_error(format!("canonical dir is invalid: {e}"));
+                self.set_new_project_error(format!("workspace dir is invalid: {e}"));
                 return;
             }
         };
-        if !canonical_path.exists() {
+        if !workspace_path.exists() {
             self.set_new_project_error(format!(
-                "canonical dir does not exist: {}",
-                canonical_path.display()
+                "workspace dir does not exist: {}",
+                workspace_path.display()
             ));
             return;
         }
-        if !canonical_path.is_dir() {
+        if !workspace_path.is_dir() {
             self.set_new_project_error(format!(
-                "canonical dir is not a directory: {}",
-                canonical_path.display()
+                "workspace dir is not a directory: {}",
+                workspace_path.display()
             ));
             return;
         }
 
         let cfg = self.config.get();
-        if cfg.projects.iter().any(|p| p.name == name) {
-            self.set_new_project_error(format!("project name already exists: '{name}'"));
+        if cfg.workspaces.iter().any(|p| p.name == name) {
+            self.set_new_project_error(format!("workspace name already exists: '{name}'"));
             return;
         }
 
-        match crate::new_project::write_rules_if_missing(&canonical_path, project_type) {
+        match crate::new_project::write_rules_if_missing(&workspace_path, project_type) {
             Ok(false) => {}
             Ok(true) => self.push_log(
                 format!(
                     "created {}",
-                    canonical_path.join("void-rules.toml").display()
+                    workspace_path.join("void-rules.toml").display()
                 ),
                 false,
             ),
@@ -421,8 +437,8 @@ impl App {
         if let Err(e) = crate::new_project::append_project_block(
             &self.loaded_config_path,
             &name,
-            &canonical_path,
-            sync_mode,
+            &workspace_path,
+            crate::config::SyncMode::Direct,
         ) {
             self.set_new_project_error(format!("failed updating config: {e}"));
             return;
@@ -435,11 +451,11 @@ impl App {
                 return;
             }
         };
-        let new_pi = new_config.projects.iter().position(|p| p.name == name);
+        let new_pi = new_config.workspaces.iter().position(|p| p.name == name);
         self.config.set(std::sync::Arc::new(new_config));
         self.refresh_projects_cache();
 
-        self.push_log(format!("added project '{name}'"), false);
+        self.push_log(format!("added workspace '{name}'"), false);
         self.new_project = None;
         self.focus = Focus::Sidebar;
 

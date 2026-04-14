@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
-use crate::config::{self, Config, ProjectConfig};
+use crate::config::{self, Config, WorkspaceConfig};
 use crate::rules::{ComposedRules, RuleCommand};
 
 #[derive(Debug)]
@@ -43,7 +43,7 @@ impl std::fmt::Display for DenyReason {
 
 /// Check whether the request should be hard-denied before any approval flow.
 /// Checks executable denylist, argument fragment denylist, and blocks shell metacharacters.
-pub fn check_denied(argv: &[String], proj: &ProjectConfig, config: &Config) -> Option<DenyReason> {
+pub fn check_denied(argv: &[String], proj: &WorkspaceConfig, config: &Config) -> Option<DenyReason> {
     if argv.is_empty() {
         return Some(DenyReason::EmptyArgv);
     }
@@ -132,7 +132,7 @@ pub async fn run_command(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{Config, ProjectConfig, ProjectHostdo};
+    use crate::config::{Config, WorkspaceConfig, WorkspaceHostdo};
 
     #[test]
     fn resolve_env_handles_profiles() {
@@ -158,7 +158,7 @@ mod tests {
 
     #[test]
     fn check_denied_blocks_metacharacters() {
-        let proj = ProjectConfig::default();
+        let proj = WorkspaceConfig::default();
         let config = Config::default();
 
         assert!(
@@ -181,7 +181,7 @@ mod tests {
 
     #[test]
     fn check_denied_blocks_denied_executables() {
-        let mut proj = ProjectConfig::default();
+        let mut proj = WorkspaceConfig::default();
         let mut config = Config::default();
         config.defaults.hostdo.denied_executables = vec!["cat".to_string()];
 
@@ -189,7 +189,7 @@ mod tests {
         assert!(check_denied(&["ls".into(), "file.txt".into()], &proj, &config).is_none());
 
         // Per-project deny
-        proj.hostdo = Some(ProjectHostdo {
+        proj.hostdo = Some(WorkspaceHostdo {
             denied_executables: Some(vec!["ls".to_string()]),
             denied_argument_fragments: None,
             command_aliases: None,

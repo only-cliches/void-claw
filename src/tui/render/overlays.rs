@@ -81,7 +81,7 @@ pub(crate) fn render_exec_approval_overlay(
             ),
         ]),
         Line::from(vec![
-            Span::styled("  Project : ", Style::default().fg(Color::DarkGray)),
+            Span::styled("  Workspace: ", Style::default().fg(Color::DarkGray)),
             Span::styled(item.project.clone(), Style::default().fg(Color::White)),
         ]),
         Line::from(vec![
@@ -266,6 +266,120 @@ pub(crate) fn render_net_approval_overlay(frame: &mut Frame, app: &App, area: Re
                 )
                 .borders(Borders::ALL)
                 .border_style(Style::default().fg(Color::Magenta)),
+        ),
+        popup_area,
+    );
+}
+
+pub(crate) fn render_remove_workspace_confirm_overlay(frame: &mut Frame, app: &App, area: Rect) {
+    let Some(state) = app.remove_workspace_confirm.as_ref() else {
+        return;
+    };
+    let popup_area = centered_rect(74, 56, 11, area);
+    frame.render_widget(Clear, popup_area);
+
+    let lines = vec![
+        Line::from(""),
+        Line::from(Span::styled(
+            "  REMOVE WORKSPACE",
+            Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+        )),
+        Line::from(""),
+        Line::from(vec![
+            Span::styled("  Workspace: ", Style::default().fg(Color::DarkGray)),
+            Span::styled(state.workspace_name.clone(), Style::default().fg(Color::White)),
+        ]),
+        Line::from(""),
+        Line::from(Span::styled(
+            "  This will stop running containers in this workspace",
+            Style::default().fg(Color::White),
+        )),
+        Line::from(Span::styled(
+            "  and remove it from void-claw.toml.",
+            Style::default().fg(Color::White),
+        )),
+        Line::from(""),
+        Line::from(vec![
+            Span::styled(
+                "[y/↵] ",
+                Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled("Remove  ", Style::default().fg(Color::White)),
+            Span::styled(
+                "[n/Esc] ",
+                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled("Cancel", Style::default().fg(Color::White)),
+        ]),
+    ];
+
+    frame.render_widget(
+        Paragraph::new(lines).block(
+            Block::default()
+                .title(" Confirm Workspace Removal ")
+                .title_alignment(Alignment::Center)
+                .title_style(Style::default().fg(Color::Red).add_modifier(Modifier::BOLD))
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::Red)),
+        ),
+        popup_area,
+    );
+}
+
+pub(crate) fn render_base_rules_changed_overlay(frame: &mut Frame, app: &App, area: Rect) {
+    let Some(state) = app.base_rules_changed.as_ref() else {
+        return;
+    };
+    let popup_area = centered_rect(82, 62, 14, area);
+    frame.render_widget(Clear, popup_area);
+
+    let lines = vec![
+        Line::from(""),
+        Line::from(Span::styled(
+            "  SECURITY ALERT",
+            Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+        )),
+        Line::from(""),
+        Line::from(Span::styled(
+            "  Rules file changed while Void Claw is running.",
+            Style::default().fg(Color::White),
+        )),
+        Line::from(Span::styled(
+            "  Change detected from an external process (not this CLI).",
+            Style::default().fg(Color::White),
+        )),
+        Line::from(vec![
+            Span::styled("  File: ", Style::default().fg(Color::DarkGray)),
+            Span::styled(state.path.display().to_string(), Style::default().fg(Color::White)),
+        ]),
+        Line::from(""),
+        Line::from(Span::styled(
+            "  If you just updated this file or asked an agent to update it, you can ignore this alert.",
+            Style::default().fg(Color::White),
+        )),
+        Line::from(""),
+        Line::from(Span::styled(
+            "  Review this file before approving further requests.",
+            Style::default().fg(Color::White),
+        )),
+        Line::from(""),
+        Line::from(vec![
+            Span::styled(
+                "[Enter/Esc] ",
+                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled("Dismiss", Style::default().fg(Color::White)),
+        ]),
+    ];
+
+    frame.render_widget(
+        Paragraph::new(lines).block(
+            Block::default()
+                .title(" Rules File Changed ")
+                .title_alignment(Alignment::Center)
+                .title_style(Style::default().fg(Color::Red).add_modifier(Modifier::BOLD))
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::Red)),
         ),
         popup_area,
     );

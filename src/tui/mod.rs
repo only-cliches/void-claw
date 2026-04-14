@@ -28,24 +28,19 @@ use std::sync::{
 use tokio::sync::mpsc;
 
 use crate::container::ContainerSession;
-use crate::rules::{NetworkPolicy, NetworkRule};
+use crate::rules::NetworkPolicy;
 use crate::server::SessionRegistry;
 use crate::server::{ApprovalDecision, ContainerStopDecision, ContainerStopItem, PendingItem};
 use crate::shared_config::SharedConfig;
 use crate::state::{AuditEntry, StateManager};
-use crate::sync::SyncReport;
 use crate::{
-    config::SyncMode,
     proxy::{NetworkDecision, PendingNetworkItem, ProxyState},
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum SettingsAction {
-    Seed,
-    Pushback,
-    WatchToggle,
     ReloadRules,
-    Clear,
+    RemoveWorkspace,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -70,12 +65,12 @@ pub enum LogEntry {
 #[derive(Debug, Clone, PartialEq)]
 /// Selectable entries in the left sidebar.
 pub enum SidebarItem {
-    Project(usize),
+    Workspace(usize),
     Session(usize),
     Settings(usize),
     Launch(usize),
     Build(usize),
-    NewProject,
+    NewWorkspace,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -86,18 +81,42 @@ pub enum Focus {
     Settings,
     ContainerPicker,
     ImageBuild,
-    NewProject,
+    NewWorkspace,
 }
 
 #[derive(Debug, Clone)]
-/// Transient state for the new-project wizard.
-pub struct NewProjectState {
+/// Transient state for the new-workspace wizard.
+pub struct NewWorkspaceState {
     pub cursor: usize,
     pub name: String,
-    pub canonical_dir: String,
-    pub sync_mode: SyncMode,
+    pub workspace_dir: String,
     pub project_type: crate::new_project::ProjectType,
     pub error: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct RemoveWorkspaceConfirmState {
+    pub workspace_name: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct BaseRulesChangedState {
+    pub path: PathBuf,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WatchedFileStamp {
+    pub exists: bool,
+    pub size: u64,
+    pub mtime_secs: u64,
+    pub mtime_nanos: u32,
+    pub content_hash: u64,
+}
+
+#[derive(Debug, Clone)]
+pub struct PendingBaseRulesInternalWrite {
+    pub expected_content: String,
+    pub expires_at: std::time::Instant,
 }
 
 /// Top-level TUI application state and event loop ownership.
@@ -109,7 +128,7 @@ pub struct App {
     pub ca_cert_path: String,
     proxy_state: ProxyState,
 
-    pub projects: Vec<ProjectStatus>,
+    pub workspaces: Vec<WorkspaceStatus>,
     pub pending_exec: Vec<PendingItem>,
     pub pending_stop: Vec<ContainerStopItem>,
     pub pending_net: Vec<PendingNetworkItem>,
@@ -131,7 +150,9 @@ pub struct App {
     pub build_output: VecDeque<(String, bool)>,
     pub build_scroll: usize,
     pub sessions: Vec<ContainerSession>,
-    pub new_project: Option<NewProjectState>,
+    pub new_project: Option<NewWorkspaceState>,
+    pub remove_workspace_confirm: Option<RemoveWorkspaceConfirmState>,
+    pub base_rules_changed: Option<BaseRulesChangedState>,
 
     pub exec_pending_rx: mpsc::Receiver<PendingItem>,
     pub stop_pending_rx: mpsc::Receiver<ContainerStopItem>,
@@ -148,28 +169,14 @@ pub struct App {
     last_terminal_esc: Option<std::time::Instant>,
     pub scroll_mode: bool,
     pub terminal_scroll: usize,
-    project_watch: HashMap<usize, ProjectWatchState>,
-    last_watch_tick: std::time::Instant,
+    last_base_rules_poll: std::time::Instant,
+    watched_rules_stamps: HashMap<PathBuf, WatchedFileStamp>,
+    pending_base_rules_internal_write: HashMap<PathBuf, PendingBaseRulesInternalWrite>,
 }
 
-/// Cached project metadata and latest sync report for the sidebar.
-pub struct ProjectStatus {
+/// Cached workspace metadata for the sidebar.
+pub struct WorkspaceStatus {
     pub name: String,
-    pub last_report: Option<SyncReport>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-struct FileSignature {
-    size: u64,
-    mtime_secs: u64,
-    mtime_nanos: u32,
-}
-
-struct ProjectWatchState {
-    enabled: bool,
-    spinner_phase: usize,
-    canonical_files: HashMap<PathBuf, FileSignature>,
-    workspace_files: HashMap<PathBuf, FileSignature>,
 }
 
 #[derive(Debug)]
@@ -377,7 +384,7 @@ async fn event_loop(
 
     loop {
         app.drain_channels();
-        app.tick_watchers();
+        app.tick_base_rules_file_watch();
         terminal.draw(|frame| render::render(frame, app))?;
 
         if app.should_quit {
@@ -393,7 +400,7 @@ async fn event_loop(
                     Some(Ok(Event::Key(key))) => app.handle_key(key),
                     Some(Ok(Event::Mouse(mouse))) => app.handle_mouse(mouse),
                     Some(Ok(Event::Paste(text))) => {
-                        if app.focus == Focus::NewProject {
+                        if app.focus == Focus::NewWorkspace {
                             app.append_new_project_text(&text);
                         } else if let Some(si) = app.active_session {
                             if let Some(session) = app.sessions.get(si) {

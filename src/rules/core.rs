@@ -4,9 +4,8 @@
 /// It controls what the AI agent is allowed to do: which host-side commands
 /// can run, and which network destinations are reachable.
 use anyhow::{Context, Result};
-use globset::Glob;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use crate::config::AliasValue;
@@ -58,14 +57,13 @@ impl Default for NetworkPolicy {
 // ── void-rules.toml schema ───────────────────────────────────────────────────
 
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
+#[serde(deny_unknown_fields)]
 pub struct ProjectRules {
     /// Optional instructions for a human or LLM agent. This field is preserved
     /// across automatic edits to this file (e.g. when void-claw appends a new
     /// `hostdo` command rule).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub llm_instructions: Option<String>,
-    #[serde(default)]
-    pub exclude_patterns: Vec<String>,
     #[serde(default)]
     pub hostdo: HostdoRules,
     #[serde(default)]
@@ -112,34 +110,25 @@ fn default_timeout() -> u64 {
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
+#[serde(deny_unknown_fields)]
 pub struct NetworkRules {
     #[serde(default)]
-    pub default_policy: NetworkPolicy,
-    #[serde(default)]
-    pub rules: Vec<NetworkRule>,
+    pub allowlist: Vec<String>,
 }
 
 impl Default for NetworkRules {
     fn default() -> Self {
-        Self {
-            default_policy: NetworkPolicy::Prompt,
-            rules: vec![],
-        }
+        Self { allowlist: vec![] }
     }
 }
 
-/// One network policy rule.  Rules are checked in declaration order.
-/// Among rules that match the same request, the one with the longest
-/// `path_prefix` wins.
+/// One parsed allowlist rule in Coder Agent Firewall style:
+/// `method=GET,POST domain=api.example.com path=/api/*,/auth/*`.
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct NetworkRule {
-    /// HTTP methods this rule applies to.  `["*"]` matches any method.
     pub methods: Vec<String>,
-    /// Hostname or glob pattern (e.g. `"api.github.com"` or `"*.npmjs.org"`).
-    pub host: String,
-    /// Path prefix. `"/"` matches everything; `"/api/v2/"` is more specific.
-    pub path_prefix: String,
-    pub policy: NetworkPolicy,
+    pub domains: Vec<String>,
+    pub paths: Vec<String>,
 }
 
 // ── ComposedRules ────────────────────────────────────────────────────────────
@@ -158,7 +147,7 @@ impl ComposedRules {
     /// Global rules come first (higher priority in declaration order).
     pub fn compose(global: &ProjectRules, projects: &[ProjectRules]) -> Self {
         let mut commands = global.hostdo.commands.clone();
-        let mut network_rules = global.network.rules.clone();
+        let mut network_allowlist = global.network.allowlist.clone();
 
         // Union: add project rules that don't duplicate a global argv.
         for proj in projects {
@@ -167,7 +156,7 @@ impl ComposedRules {
                     commands.push(cmd.clone());
                 }
             }
-            network_rules.extend(proj.network.rules.clone());
+            network_allowlist.extend(proj.network.allowlist.clone());
         }
 
         // Hostdo default policy: most restrictive wins (deny > prompt > auto).
@@ -179,14 +168,17 @@ impl ComposedRules {
                 _ => ApprovalMode::Auto,
             });
 
-        // Network default policy: most restrictive wins (deny > prompt > auto).
-        let network_default = std::iter::once(&global.network.default_policy)
-            .chain(projects.iter().map(|p| &p.network.default_policy))
-            .fold(NetworkPolicy::Auto, |acc, p| match (&acc, p) {
-                (NetworkPolicy::Deny, _) | (_, NetworkPolicy::Deny) => NetworkPolicy::Deny,
-                (NetworkPolicy::Prompt, _) | (_, NetworkPolicy::Prompt) => NetworkPolicy::Prompt,
-                _ => NetworkPolicy::Auto,
-            });
+        let mut network_rules = Vec::new();
+        let mut seen = HashSet::new();
+        for raw in network_allowlist {
+            if !seen.insert(raw.clone()) {
+                continue;
+            }
+            // `load()` validates the syntax, so skip invalid entries defensively.
+            if let Ok(parsed) = parse_network_allowlist_rule(&raw) {
+                network_rules.push(parsed);
+            }
+        }
 
         Self {
             hostdo: HostdoRules {
@@ -195,38 +187,31 @@ impl ComposedRules {
                 command_aliases: HashMap::new(),
             },
             network_rules,
-            network_default,
+            // Coder-style rules engine is explicit allowlist with deny-by-default.
+            network_default: NetworkPolicy::Deny,
         }
     }
 
-    /// Find the best matching network policy for a given request.
+    /// Find the effective network policy for a given request.
     pub fn match_network(&self, method: &str, host: &str, path: &str) -> NetworkPolicy {
-        let candidates: Vec<&NetworkRule> = self
+        if self
             .network_rules
             .iter()
-            .filter(|r| method_matches(&r.methods, method) && host_matches(&r.host, host))
-            .filter(|r| path.starts_with(r.path_prefix.as_str()))
-            .collect();
-
-        // Longest path prefix wins (most specific).
-        candidates
-            .into_iter()
-            .max_by_key(|r| r.path_prefix.len())
-            .map(|r| r.policy.clone())
-            .unwrap_or_else(|| self.network_default.clone())
+            .any(|r| network_rule_matches(r, method, host, path))
+        {
+            NetworkPolicy::Auto
+        } else {
+            self.network_default.clone()
+        }
     }
 
-    /// Expand `$CANONICAL` and `$WORKSPACE` prefixes in rule command cwds.
-    pub fn expand_cwd_vars(&mut self, canonical_path: &str, mount_target: &str) {
+    /// Expand `$WORKSPACE` prefixes in rule command cwds.
+    pub fn expand_cwd_vars(&mut self, workspace_path: &str) {
         for cmd in &mut self.hostdo.commands {
-            if cmd.cwd == "$CANONICAL" {
-                cmd.cwd = canonical_path.to_string();
-            } else if cmd.cwd == "$WORKSPACE" {
-                cmd.cwd = mount_target.to_string();
-            } else if let Some(rest) = cmd.cwd.strip_prefix("$CANONICAL/") {
-                cmd.cwd = format!("{canonical_path}/{rest}");
+            if cmd.cwd == "$WORKSPACE" {
+                cmd.cwd = workspace_path.to_string();
             } else if let Some(rest) = cmd.cwd.strip_prefix("$WORKSPACE/") {
-                cmd.cwd = format!("{mount_target}/{rest}");
+                cmd.cwd = format!("{workspace_path}/{rest}");
             }
         }
     }
@@ -241,33 +226,135 @@ impl ComposedRules {
     }
 }
 
-fn method_matches(methods: &[String], method: &str) -> bool {
-    methods
-        .iter()
-        .any(|m| m == "*" || m.eq_ignore_ascii_case(method))
+fn network_rule_matches(rule: &NetworkRule, method: &str, host: &str, path: &str) -> bool {
+    method_matches(&rule.methods, method)
+        && domain_matches(&rule.domains, host)
+        && path_matches(&rule.paths, path)
 }
 
-pub fn host_matches(pattern: &str, host: &str) -> bool {
-    if pattern == "*" {
+fn method_matches(patterns: &[String], method: &str) -> bool {
+    if patterns.is_empty() {
         return true;
     }
-    if !pattern.contains('*') {
-        return pattern.eq_ignore_ascii_case(host);
+    patterns.iter().any(|m| m.eq_ignore_ascii_case(method))
+}
+
+fn domain_matches(patterns: &[String], host: &str) -> bool {
+    if patterns.is_empty() {
+        return true;
     }
-    // Treat leading "*." as matching both subdomains and the apex domain.
-    // Example: "*.example.com" matches "api.example.com" and "example.com".
-    if let Some(apex) = pattern.strip_prefix("*.") {
-        if host.eq_ignore_ascii_case(apex) {
+    patterns.iter().any(|pattern| {
+        if pattern == "*" {
             return true;
         }
+        // Coder semantics: "*.example.com" matches subdomains, not apex.
+        if let Some(apex) = pattern.strip_prefix("*.") {
+            let host_lc = host.to_ascii_lowercase();
+            let apex_lc = apex.to_ascii_lowercase();
+            return host_lc.ends_with(&format!(".{apex_lc}"));
+        }
+        pattern.eq_ignore_ascii_case(host)
+    })
+}
+
+#[cfg(test)]
+pub fn host_matches(pattern: &str, host: &str) -> bool {
+    domain_matches(&[pattern.to_string()], host)
+}
+
+fn path_matches(patterns: &[String], path: &str) -> bool {
+    if patterns.is_empty() {
+        return true;
     }
-    // Glob match (e.g. "*.example.com")
-    let pattern_lc = pattern.to_ascii_lowercase();
-    let host_lc = host.to_ascii_lowercase();
-    Glob::new(&pattern_lc)
-        .ok()
-        .map(|g| g.compile_matcher().is_match(&host_lc))
-        .unwrap_or(false)
+    patterns.iter().any(|pattern| wildcard_match(pattern, path))
+}
+
+fn wildcard_match(pattern: &str, text: &str) -> bool {
+    if !pattern.contains('*') {
+        return pattern == text;
+    }
+    let mut parts = pattern.split('*').peekable();
+    let starts_with_wildcard = pattern.starts_with('*');
+    let ends_with_wildcard = pattern.ends_with('*');
+    let mut idx = 0usize;
+
+    if !starts_with_wildcard {
+        let Some(first) = parts.next() else {
+            return true;
+        };
+        if !text[idx..].starts_with(first) {
+            return false;
+        }
+        idx += first.len();
+    }
+
+    let remaining: Vec<&str> = parts.collect();
+    let last_idx = remaining.len().saturating_sub(1);
+    for (i, part) in remaining.iter().enumerate() {
+        if part.is_empty() {
+            continue;
+        }
+        if i == last_idx && !ends_with_wildcard {
+            return text[idx..].ends_with(part);
+        }
+        if let Some(found) = text[idx..].find(part) {
+            idx += found + part.len();
+        } else {
+            return false;
+        }
+    }
+    true
+}
+
+pub fn parse_network_allowlist_rule(raw: &str) -> Result<NetworkRule> {
+    let mut methods = Vec::new();
+    let mut domains = Vec::new();
+    let mut paths = Vec::new();
+
+    let trimmed = raw.trim();
+    anyhow::ensure!(
+        !trimmed.is_empty(),
+        "network.allowlist entry must not be empty"
+    );
+    for token in trimmed.split_whitespace() {
+        let (key, value) = token
+            .split_once('=')
+            .ok_or_else(|| anyhow::anyhow!("invalid token '{token}' in allowlist entry '{raw}'"))?;
+        let values: Vec<String> = value
+            .split(',')
+            .map(|v| v.trim())
+            .filter(|v| !v.is_empty())
+            .map(|v| v.to_string())
+            .collect();
+        anyhow::ensure!(
+            !values.is_empty(),
+            "allowlist token '{key}' has no values in '{raw}'"
+        );
+        match key {
+            "method" => {
+                anyhow::ensure!(methods.is_empty(), "duplicate method key in '{raw}'");
+                methods = values.into_iter().map(|v| v.to_ascii_uppercase()).collect();
+            }
+            "domain" => {
+                anyhow::ensure!(domains.is_empty(), "duplicate domain key in '{raw}'");
+                domains = values;
+            }
+            "path" => {
+                anyhow::ensure!(paths.is_empty(), "duplicate path key in '{raw}'");
+                paths = values;
+            }
+            _ => anyhow::bail!("unknown key '{key}' in allowlist entry '{raw}'"),
+        }
+    }
+    anyhow::ensure!(
+        !domains.is_empty(),
+        "allowlist entry '{raw}' is missing required 'domain=' key"
+    );
+    Ok(NetworkRule {
+        methods,
+        domains,
+        paths,
+    })
 }
 
 // ── Loading / saving ─────────────────────────────────────────────────────────
@@ -280,26 +367,31 @@ pub fn load(path: &Path) -> Result<ProjectRules> {
     }
     let raw = std::fs::read_to_string(path)
         .with_context(|| format!("reading void-rules.toml: {}", path.display()))?;
-    toml::from_str(&raw).with_context(|| format!("parsing void-rules.toml: {}", path.display()))
+    let parsed: ProjectRules =
+        toml::from_str(&raw).with_context(|| format!("parsing void-rules.toml: {}", path.display()))?;
+    for entry in &parsed.network.allowlist {
+        parse_network_allowlist_rule(entry).with_context(|| {
+            format!(
+                "invalid [network].allowlist entry '{}' in {}",
+                entry,
+                path.display()
+            )
+        })?;
+    }
+    Ok(parsed)
 }
 
 /// Append an auto-approved command to the rules file at `path`.
 ///
 /// If the argv already exists in the file, the file is left unchanged. The
 /// parent directory is created if needed.
+#[cfg(test)]
 pub fn append_auto_approval(path: &Path, argv: &[String], cwd: &str) -> Result<()> {
-    append_command_rule(path, argv, cwd, ApprovalMode::Auto)
+    append_command_rule(path, argv, cwd)
 }
 
-/// Append a permanently denied command to the rules file at `path`.
-///
-/// If the argv already exists in the file, the file is left unchanged. The
-/// parent directory is created if needed.
-pub fn append_deny_rule(path: &Path, argv: &[String], cwd: &str) -> Result<()> {
-    append_command_rule(path, argv, cwd, ApprovalMode::Deny)
-}
-
-fn append_command_rule(path: &Path, argv: &[String], cwd: &str, mode: ApprovalMode) -> Result<()> {
+#[cfg(test)]
+fn append_command_rule(path: &Path, argv: &[String], cwd: &str) -> Result<()> {
     let is_new = !path.exists();
     let mut rules = load(path)?;
     if rules.hostdo.commands.iter().any(|c| c.argv == argv) {
@@ -312,7 +404,7 @@ fn append_command_rule(path: &Path, argv: &[String], cwd: &str, mode: ApprovalMo
         env_profile: None,
         timeout_secs: default_timeout(),
         concurrency: ConcurrencyPolicy::default(),
-        approval_mode: mode,
+        approval_mode: ApprovalMode::Auto,
     });
     write_rules_file(path, &rules, is_new)
 }
@@ -323,10 +415,15 @@ pub fn write_rules_file(path: &Path, rules: &ProjectRules, is_new: bool) -> Resu
         std::fs::create_dir_all(parent)
             .with_context(|| format!("creating directory for {}", path.display()))?;
     }
+    let content = render_rules_file(rules, is_new)?;
+    std::fs::write(path, &content).with_context(|| format!("writing {}", path.display()))
+}
+
+/// Render rules file contents exactly as `write_rules_file` would serialize it.
+pub fn render_rules_file(rules: &ProjectRules, is_new: bool) -> Result<String> {
     let toml_str = toml::to_string_pretty(rules).context("serializing rules to TOML")?;
     let _ = is_new; // retained for API compatibility
-    let content = format!("{RULES_FILE_HEADER}{toml_str}");
-    std::fs::write(path, &content).with_context(|| format!("writing {}", path.display()))
+    Ok(format!("{RULES_FILE_HEADER}{toml_str}"))
 }
 
 const RULES_FILE_HEADER: &str = "\
@@ -338,9 +435,6 @@ const RULES_FILE_HEADER: &str = "\
 # llm_instructions = \"\"\"\n\
 # \"\"\"
 #
-# Optional workspace seed exclusions:
-# exclude_patterns = [\"node_modules\", \"dist/**\"]
-
 # ── Hostdo (host-side command execution) ─────────────────────────────────────
 #
 # default_policy: what happens when a command doesn't match any rule below.
@@ -357,15 +451,22 @@ const RULES_FILE_HEADER: &str = "\
 # Command alias (agent sends `hostdo tests`, expands server-side):
 #   [hostdo.command_aliases]
 #   tests = \"cargo test\" # run inside container with `hostdo test`
-#   build = { cmd = \"cargo build --release\", cwd = \"$CANONICAL\" }
+#   build = { cmd = \"cargo build --release\", cwd = \"$WORKSPACE\" }
 #
-# $WORKSPACE = container mount target, $CANONICAL = host project path.
+# $WORKSPACE = workspace path on the host.
 
 # ── Network (HTTP/HTTPS proxy policy) ────────────────────────────────────────
 #
-# default_policy: what happens when a request doesn't match any rule below.
-#   auto   — allow without prompting
-#   prompt — ask the developer in the TUI (default)
-#   deny   — block silently
+# Coder-style allowlist rules. If no rule matches, request is denied.
+# Rule format:
+#   method=GET,POST domain=api.example.com path=/v1/*,/health
+#
+# Domain matching:
+# - `domain=example.com` exact only
+# - `domain=*.example.com` subdomains only (not the apex)
+#
+# Path matching:
+# - exact (`/v1/users`)
+# - wildcard (`/v1/*`)
 
 ";

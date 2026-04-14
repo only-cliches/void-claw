@@ -319,7 +319,7 @@ async fn handle_transparent_tls(mut stream: TcpStream, state: ProxyState) -> Res
         return Ok(());
     }
 
-    let rules = match config::load_composed_rules_for_project(&cfg, source_project.as_deref()) {
+    let rules = match config::load_composed_rules_for_workspace(&cfg, source_project.as_deref()) {
         Ok(rules) => rules,
         Err(e) => {
             warn!("proxy rules load error: {e}");

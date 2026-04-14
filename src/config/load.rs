@@ -5,7 +5,7 @@ use toml_edit::{DocumentMut, value};
 use tracing::instrument;
 
 use crate::config::{
-    AgentKind, AliasValue, Config, ContainerMount, DefaultsConfig, ProjectConfig, SyncMode,
+    AgentKind, AliasValue, Config, ContainerMount, DefaultsConfig, WorkspaceConfig, SyncMode,
     WorkspaceSection, default_mount_target,
 };
 
@@ -15,7 +15,7 @@ use crate::config::{
 /// void-rules.toml). Called at request time so edits take effect without
 /// restart.
 #[instrument(skip(config))]
-pub fn load_composed_rules_for_project(
+pub fn load_composed_rules_for_workspace(
     config: &Config,
     project_name: Option<&str>,
 ) -> Result<crate::rules::ComposedRules> {
@@ -34,7 +34,7 @@ pub fn load_composed_rules_for_project(
 
     let mut proj_rules = Vec::new();
     if let Some(project_name) = project_name {
-        if let Some(project) = config.projects.iter().find(|p| p.name == project_name) {
+        if let Some(project) = config.workspaces.iter().find(|p| p.name == project_name) {
             let path = project.canonical_path.join("void-rules.toml");
             match crate::rules::load(&path) {
                 Ok(rules) => proj_rules.push(rules),
@@ -79,11 +79,10 @@ pub fn load(path: &Path) -> Result<Config> {
 fn expand_config_paths(config: &mut Config) -> Result<()> {
     config.manager.global_rules_file = expand_path(&config.manager.global_rules_file)?;
     config.logging.log_dir = expand_path(&config.logging.log_dir)?;
-    config.workspace.root = expand_path(&config.workspace.root)?;
     if !config.docker_dir.as_os_str().is_empty() {
         config.docker_dir = expand_path(&config.docker_dir)?;
     }
-    for proj in &mut config.projects {
+    for proj in &mut config.workspaces {
         proj.canonical_path = expand_path(&proj.canonical_path)?;
         if let Some(p) = &proj.workspace_path {
             proj.workspace_path = Some(expand_path(p)?);
@@ -249,7 +248,7 @@ fn validate(config: &Config) -> Result<()> {
     }
 
     let mut seen = std::collections::HashSet::new();
-    for proj in &config.projects {
+    for proj in &config.workspaces {
         anyhow::ensure!(
             seen.insert(&proj.name),
             "duplicate project name: {}",
@@ -273,22 +272,6 @@ fn validate(config: &Config) -> Result<()> {
             proj.canonical_path.display()
         );
 
-        let effective_mode = effective_sync_mode(proj, &config.defaults);
-        if effective_mode == SyncMode::Direct {
-            anyhow::ensure!(
-                !proj.disposable,
-                "project '{}': disposable=true is not allowed with projects.sync.mode='direct' (it would allow deleting the canonical directory)",
-                proj.name
-            );
-            if let Some(p) = &proj.workspace_path {
-                anyhow::ensure!(
-                    p == &proj.canonical_path,
-                    "project '{}': workspace_path must be omitted (or equal canonical_path) with projects.sync.mode='direct' (got workspace_path={})",
-                    proj.name,
-                    p.display()
-                );
-            }
-        }
         if let Some(he) = &proj.hostdo {
             if let Some(aliases) = &he.command_aliases {
                 for (alias, target) in aliases {
@@ -400,50 +383,33 @@ pub fn expand_path(path: &Path) -> Result<PathBuf> {
 ///
 /// For direct-mount projects, use `effective_mount_source_path`.
 #[instrument(skip(proj, ws))]
-pub fn effective_workspace_path(proj: &ProjectConfig, ws: &WorkspaceSection) -> PathBuf {
-    proj.workspace_path
-        .clone()
-        .unwrap_or_else(|| ws.root.join(&proj.name))
+pub fn effective_workspace_path(proj: &WorkspaceConfig, ws: &WorkspaceSection) -> PathBuf {
+    let _ = ws;
+    proj.canonical_path.clone()
 }
 
 /// Host-side directory that should be mounted into the container at `mount_target`.
 #[instrument(skip(proj, ws, defaults))]
 pub fn effective_mount_source_path(
-    proj: &ProjectConfig,
+    proj: &WorkspaceConfig,
     ws: &WorkspaceSection,
     defaults: &DefaultsConfig,
 ) -> PathBuf {
-    match effective_sync_mode(proj, defaults) {
-        SyncMode::Direct => proj.canonical_path.clone(),
-        _ => effective_workspace_path(proj, ws),
-    }
+    let _ = (ws, defaults);
+    proj.canonical_path.clone()
 }
 
 /// Effective sync mode for a project.
 #[instrument(skip(proj, defaults))]
-pub fn effective_sync_mode(proj: &ProjectConfig, defaults: &DefaultsConfig) -> SyncMode {
-    proj.sync
-        .as_ref()
-        .and_then(|s| s.mode.clone())
-        .unwrap_or_else(|| defaults.sync.mode.clone())
-}
-
-/// Combined exclude patterns (global + per-project config + per-project rules).
-#[instrument(skip(proj, defaults))]
-pub fn combined_excludes(proj: &ProjectConfig, defaults: &DefaultsConfig) -> Result<Vec<String>> {
-    let mut patterns = defaults.sync.global_exclude_patterns.clone();
-    patterns.extend(proj.exclude_patterns.iter().cloned());
-    let rules_path = proj.canonical_path.join("void-rules.toml");
-    let rules = crate::rules::load(&rules_path)
-        .with_context(|| format!("loading project excludes from {}", rules_path.display()))?;
-    patterns.extend(rules.exclude_patterns);
-    Ok(patterns)
+pub fn effective_sync_mode(proj: &WorkspaceConfig, defaults: &DefaultsConfig) -> SyncMode {
+    let _ = (proj, defaults);
+    SyncMode::Direct
 }
 
 /// Effective denied executables.
 #[instrument(skip(proj, defaults))]
 pub fn effective_denied_executables(
-    proj: &ProjectConfig,
+    proj: &WorkspaceConfig,
     defaults: &DefaultsConfig,
 ) -> Vec<String> {
     proj.hostdo
@@ -454,7 +420,7 @@ pub fn effective_denied_executables(
 
 /// Effective denied argument fragments.
 #[instrument(skip(proj, defaults))]
-pub fn effective_denied_fragments(proj: &ProjectConfig, defaults: &DefaultsConfig) -> Vec<String> {
+pub fn effective_denied_fragments(proj: &WorkspaceConfig, defaults: &DefaultsConfig) -> Vec<String> {
     proj.hostdo
         .as_ref()
         .and_then(|he| he.denied_argument_fragments.clone())
@@ -465,7 +431,7 @@ pub fn effective_denied_fragments(proj: &ProjectConfig, defaults: &DefaultsConfi
 /// Merge order (later wins): global defaults → per-project config → per-project rules.
 #[instrument(skip(proj, defaults))]
 pub fn effective_command_aliases(
-    proj: &ProjectConfig,
+    proj: &WorkspaceConfig,
     defaults: &DefaultsConfig,
 ) -> HashMap<String, AliasValue> {
     let mut out = defaults.hostdo.command_aliases.clone();

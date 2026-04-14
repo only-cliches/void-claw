@@ -22,6 +22,9 @@ pub fn render(frame: &mut Frame, app: &mut App) {
             .split(area);
         render_log_fullscreen(frame, app, split[0]);
         render_status_bar_log(frame, app, split[1]);
+        if app.base_rules_changed.is_some() {
+            render_base_rules_changed_overlay(frame, app, area);
+        }
         return;
     }
 
@@ -35,8 +38,18 @@ pub fn render(frame: &mut Frame, app: &mut App) {
 
             render_terminal(frame, app, area, si, has_modal, true);
             render_terminal_overlays(frame, app, area, si);
+            if app.base_rules_changed.is_some() {
+                render_base_rules_changed_overlay(frame, app, area);
+            } else if app.remove_workspace_confirm.is_some() {
+                render_remove_workspace_confirm_overlay(frame, app, area);
+            }
         } else {
             render_idle(frame, area);
+            if app.base_rules_changed.is_some() {
+                render_base_rules_changed_overlay(frame, app, area);
+            } else if app.remove_workspace_confirm.is_some() {
+                render_remove_workspace_confirm_overlay(frame, app, area);
+            }
         }
         return;
     }
@@ -62,6 +75,11 @@ pub fn render(frame: &mut Frame, app: &mut App) {
     render_right_pane(frame, app, main_row[1]);
     render_log(frame, app, outer[1]);
     render_status_bar(frame, app, outer[2]);
+    if app.base_rules_changed.is_some() {
+        render_base_rules_changed_overlay(frame, app, area);
+    } else if app.remove_workspace_confirm.is_some() {
+        render_remove_workspace_confirm_overlay(frame, app, area);
+    }
 }
 
 pub fn render_scrollbar(
@@ -107,7 +125,7 @@ pub(crate) fn render_sidebar(frame: &mut Frame, app: &mut App, area: Rect) {
     };
 
     let block = Block::default()
-        .title(" Projects ")
+        .title(" Workspaces ")
         .borders(Borders::ALL)
         .border_style(border_style);
     let inner = block.inner(area);
@@ -136,35 +154,14 @@ pub(crate) fn render_sidebar(frame: &mut Frame, app: &mut App, area: Rect) {
         .skip(offset)
         .take(visible)
         .map(|item| match item {
-            SidebarItem::Project(pi) => {
-                let proj = &app.projects[*pi];
-                let sync_suffix = match &proj.last_report {
-                    Some(r) => format!(" {}", r.timestamp.format("%H:%M")),
-                    None => String::new(),
-                };
-                let is_direct = cfg
-                    .projects
-                    .get(*pi)
-                    .map(|p| {
-                        crate::config::effective_sync_mode(p, &cfg.defaults)
-                            == crate::config::SyncMode::Direct
-                    })
-                    .unwrap_or(false);
-                let (dot, dot_color) = if is_direct {
-                    ("●", Color::Green)
-                } else {
-                    match app.project_watch_spinner(*pi) {
-                        Some(frame) => (frame, Color::Green),
-                        None => ("○", Color::DarkGray),
-                    }
-                };
+            SidebarItem::Workspace(pi) => {
+                let proj = &app.workspaces[*pi];
                 ListItem::new(Line::from(vec![
-                    Span::styled(format!("{dot} "), Style::default().fg(dot_color)),
+                    Span::styled("● ", Style::default().fg(Color::Green)),
                     Span::styled(
                         proj.name.clone(),
                         Style::default().add_modifier(Modifier::BOLD),
                     ),
-                    Span::styled(sync_suffix, Style::default().fg(Color::DarkGray)),
                 ]))
             }
             SidebarItem::Session(si) => {
@@ -222,10 +219,10 @@ pub(crate) fn render_sidebar(frame: &mut Frame, app: &mut App, area: Rect) {
                     Span::styled(format!("  {image}"), Style::default().fg(Color::DarkGray)),
                 ]))
             }
-            SidebarItem::NewProject => ListItem::new(Line::from(vec![
+            SidebarItem::NewWorkspace => ListItem::new(Line::from(vec![
                 Span::styled("+ ", Style::default().fg(Color::Green)),
                 Span::styled(
-                    "New Project...",
+                    "New Workspace...",
                     Style::default().add_modifier(Modifier::BOLD),
                 ),
             ])),
@@ -235,9 +232,9 @@ pub(crate) fn render_sidebar(frame: &mut Frame, app: &mut App, area: Rect) {
     let mut list_state = ListState::default();
     if !items.is_empty() {
         let selected = app.sidebar_idx.min(items.len().saturating_sub(1));
-        // Project rows are non-selectable section headers. If the app state ever points at one
+        // Workspace rows are non-selectable section headers. If the app state ever points at one
         // (e.g. via older persisted state), render with no highlight.
-        if matches!(items.get(selected), Some(SidebarItem::Project(_))) {
+        if matches!(items.get(selected), Some(SidebarItem::Workspace(_))) {
             list_state.select(None);
         } else {
             let rel_selected = selected.saturating_sub(offset);

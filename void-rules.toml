@@ -6,9 +6,6 @@
 # llm_instructions = """
 # """
 #
-# Optional workspace seed exclusions:
-# exclude_patterns = ["node_modules", "dist/**"]
-
 # ── Hostdo (host-side command execution) ─────────────────────────────────────
 #
 # default_policy: what happens when a command doesn't match any rule below.
@@ -25,18 +22,23 @@
 # Command alias (agent sends `hostdo tests`, expands server-side):
 #   [hostdo.command_aliases]
 #   tests = "cargo test" # run inside container with `hostdo test`
-#   build = { cmd = "cargo build --release", cwd = "$CANONICAL" }
+#   build = { cmd = "cargo build --release", cwd = "$WORKSPACE" }
 #
-# $WORKSPACE = container mount target, $CANONICAL = host project path.
+# $WORKSPACE = workspace path on the host.
 
 # ── Network (HTTP/HTTPS proxy policy) ────────────────────────────────────────
 #
-# default_policy: what happens when a request doesn't match any rule below.
-#   auto   — allow without prompting
-#   prompt — ask the developer in the TUI (default)
-#   deny   — block silently
-
-exclude_patterns = []
+# Coder-style allowlist rules. If no rule matches, request is denied.
+# Rule format:
+#   method=GET,POST domain=api.example.com path=/v1/*,/health
+#
+# Domain matching:
+# - `domain=example.com` exact only
+# - `domain=*.example.com` subdomains only (not the apex)
+#
+# Path matching:
+# - exact (`/v1/users`)
+# - wildcard (`/v1/*`)
 
 [hostdo]
 default_policy = "prompt"
@@ -46,7 +48,7 @@ argv = [
     "cargo",
     "test",
 ]
-cwd = "$CANONICAL"
+cwd = "$WORKSPACE"
 timeout_secs = 60
 concurrency = "queue"
 approval_mode = "auto"
@@ -54,17 +56,8 @@ approval_mode = "auto"
 [[hostdo.commands]]
 argv = [
     "cargo",
-    "build",
-]
-cwd = "$CANONICAL"
-timeout_secs = 60
-concurrency = "queue"
-approval_mode = "auto"
-
-[[hostdo.commands]]
-argv = [
-    "cargo",
-    "fmt",
+    "check",
+    "--all-targets",
 ]
 cwd = "$WORKSPACE"
 timeout_secs = 60
@@ -74,33 +67,8 @@ approval_mode = "auto"
 [[hostdo.commands]]
 argv = [
     "cargo",
-    "test",
-    "--lib",
-    "container::tests",
-]
-cwd = "$CANONICAL"
-timeout_secs = 60
-concurrency = "queue"
-approval_mode = "auto"
-
-[[hostdo.commands]]
-argv = [
-    "rg",
-    "-n",
-    "pub enum NamedColor",
-    "/home/ubuntu/.cargo/registry/src",
-    "-S",
-]
-cwd = "$WORKSPACE"
-timeout_secs = 60
-concurrency = "queue"
-approval_mode = "deny"
-
-[[hostdo.commands]]
-argv = [
-    "cargo",
-    "test",
-    "-q",
+    "clippy",
+    "--all-targets",
 ]
 cwd = "$WORKSPACE"
 timeout_secs = 60
@@ -117,219 +85,25 @@ timeout_secs = 60
 concurrency = "queue"
 approval_mode = "auto"
 
-[[hostdo.commands]]
-argv = [
-    "cargo",
-    "clippy",
-    "--",
-    "-D",
-    "warnings",
-]
+[hostdo.command_aliases.check]
+cmd = "cargo check"
 cwd = "$WORKSPACE"
-timeout_secs = 60
-concurrency = "queue"
-approval_mode = "auto"
 
-[[hostdo.commands]]
-argv = [
-    "cargo",
-    "test",
-    "config::tests",
-    "sync::tests",
-]
+[hostdo.command_aliases.fmt]
+cmd = "cargo fmt"
 cwd = "$WORKSPACE"
-timeout_secs = 60
-concurrency = "queue"
-approval_mode = "auto"
 
-[[hostdo.commands]]
-argv = [
-    "cargo",
-    "test",
-    "config::tests::load_fails_when_direct_mode_has_explicit_workspace_path",
-]
+[hostdo.command_aliases.build]
+cmd = "cargo build"
 cwd = "$WORKSPACE"
-timeout_secs = 60
-concurrency = "queue"
-approval_mode = "auto"
 
-[[hostdo.commands]]
-argv = [
-    "cargo",
-    "test",
-    "--no-run",
-]
+[hostdo.command_aliases.test]
+cmd = "cargo test"
 cwd = "$WORKSPACE"
-timeout_secs = 60
-concurrency = "queue"
-approval_mode = "auto"
 
-[[hostdo.commands]]
-argv = [
-    "cargo",
-    "fmt",
-    "--check",
-]
+[hostdo.command_aliases.lint]
+cmd = "cargo clippy"
 cwd = "$WORKSPACE"
-timeout_secs = 60
-concurrency = "queue"
-approval_mode = "auto"
 
 [network]
-default_policy = "prompt"
-
-[[network.rules]]
-methods = ["*"]
-host = "github.com"
-path_prefix = "/"
-policy = "auto"
-
-[[network.rules]]
-methods = ["*"]
-host = "api.github.com"
-path_prefix = "/"
-policy = "auto"
-
-[[network.rules]]
-methods = ["*"]
-host = "raw.githubusercontent.com"
-path_prefix = "/"
-policy = "auto"
-
-[[network.rules]]
-methods = ["*"]
-host = "objects.githubusercontent.com"
-path_prefix = "/"
-policy = "auto"
-
-[[network.rules]]
-methods = ["*"]
-host = "registry.npmjs.org"
-path_prefix = "/"
-policy = "auto"
-
-[[network.rules]]
-methods = ["*"]
-host = "*.npmjs.org"
-path_prefix = "/"
-policy = "auto"
-
-[[network.rules]]
-methods = ["*"]
-host = "pypi.org"
-path_prefix = "/"
-policy = "auto"
-
-[[network.rules]]
-methods = ["*"]
-host = "files.pythonhosted.org"
-path_prefix = "/"
-policy = "auto"
-
-[[network.rules]]
-methods = ["*"]
-host = "crates.io"
-path_prefix = "/"
-policy = "auto"
-
-[[network.rules]]
-methods = ["*"]
-host = "static.crates.io"
-path_prefix = "/"
-policy = "auto"
-
-[[network.rules]]
-methods = ["*"]
-host = "index.crates.io"
-path_prefix = "/"
-policy = "auto"
-
-[[network.rules]]
-methods = ["*"]
-host = "rubygems.org"
-path_prefix = "/"
-policy = "auto"
-
-[[network.rules]]
-methods = ["*"]
-host = "api.rubygems.org"
-path_prefix = "/"
-policy = "auto"
-
-[[network.rules]]
-methods = ["*"]
-host = "pkg.go.dev"
-path_prefix = "/"
-policy = "auto"
-
-[[network.rules]]
-methods = ["*"]
-host = "sum.golang.org"
-path_prefix = "/"
-policy = "auto"
-
-[[network.rules]]
-methods = ["*"]
-host = "proxy.golang.org"
-path_prefix = "/"
-policy = "auto"
-
-[[network.rules]]
-methods = ["*"]
-host = "api.openai.com"
-path_prefix = "/"
-policy = "auto"
-
-[[network.rules]]
-methods = ["*"]
-host = "chatgpt.com"
-path_prefix = "/"
-policy = "auto"
-
-[[network.rules]]
-methods = ["*"]
-host = "ab.chatgpt.com"
-path_prefix = "/"
-policy = "auto"
-
-[[network.rules]]
-methods = ["*"]
-host = "api.anthropic.com"
-path_prefix = "/"
-policy = "auto"
-
-[[network.rules]]
-methods = ["*"]
-host = "storage.googleapis.com"
-path_prefix = "/"
-policy = "auto"
-
-[[network.rules]]
-methods = ["*"]
-host = "http-intake.logs.us5.datadoghq.com"
-path_prefix = "/"
-policy = "deny"
-
-[[network.rules]]
-methods = ["*"]
-host = "play.googleapis.com"
-path_prefix = "/"
-policy = "auto"
-
-[[network.rules]]
-methods = ["*"]
-host = "release-assets.githubusercontent.com"
-path_prefix = "/"
-policy = "auto"
-
-[[network.rules]]
-methods = ["*"]
-host = "opencode.ai"
-path_prefix = "/"
-policy = "auto"
-
-[[network.rules]]
-methods = ["*"]
-host = "docs.rs"
-path_prefix = "/"
-policy = "auto"
+allowlist = []

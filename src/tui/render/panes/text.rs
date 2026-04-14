@@ -93,7 +93,7 @@ pub(crate) fn render_status_bar(frame: &mut Frame, app: &mut App, area: Rect) {
         Focus::ImageBuild => {
             " [r]run+launch  [c]cancel  [↑↓/jk]navigate  [↵/l]select  [^B]sidebar  [^Q]quit"
         }
-        Focus::NewProject => {
+        Focus::NewWorkspace => {
             " [↑↓/jk]navigate  [type]edit  [←→]cycle  [↵/l]select  [Esc/^B]back  [^Q]quit"
         }
     };
@@ -103,7 +103,7 @@ pub(crate) fn render_status_bar(frame: &mut Frame, app: &mut App, area: Rect) {
     );
 }
 
-// ── New project pane ─────────────────────────────────────────────────────────
+// ── New workspace pane ───────────────────────────────────────────────────────
 
 pub(crate) fn render_new_project(frame: &mut Frame, app: &App, area: Rect, dimmed: bool) {
     let Some(state) = app.new_project.as_ref() else {
@@ -113,7 +113,7 @@ pub(crate) fn render_new_project(frame: &mut Frame, app: &App, area: Rect, dimme
 
     let tone = |c| maybe_dim(c, dimmed);
     let block = Block::default()
-        .title(" New Project ")
+        .title(" New Workspace ")
         .title_style(
             Style::default()
                 .fg(tone(Color::Yellow))
@@ -125,23 +125,14 @@ pub(crate) fn render_new_project(frame: &mut Frame, app: &App, area: Rect, dimme
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
-    let sync_mode = match state.sync_mode {
-        crate::config::SyncMode::WorkspaceOnly => "workspace_only",
-        crate::config::SyncMode::Pushback => "pushback",
-        crate::config::SyncMode::Bidirectional => "bidirectional",
-        crate::config::SyncMode::Pullthrough => "pullthrough",
-        crate::config::SyncMode::Direct => "direct",
-    };
-
-    let rows: [(&str, String); 6] = [
-        ("Project name", state.name.clone()),
-        ("Canonical dir", state.canonical_dir.clone()),
-        ("Sync mode", sync_mode.to_string()),
+    let rows: [(&str, String); 5] = [
+        ("Workspace name", state.name.clone()),
+        ("Workspace dir", state.workspace_dir.clone()),
         (
-            "Project type",
+            "Workspace type",
             state.project_type.display_name().to_string(),
         ),
-        ("Create", "Add project + write rules".to_string()),
+        ("Create", "Add workspace + write rules".to_string()),
         ("Cancel", "Back to sidebar".to_string()),
     ];
 
@@ -152,7 +143,7 @@ pub(crate) fn render_new_project(frame: &mut Frame, app: &App, area: Rect, dimme
             Style::default().fg(tone(Color::DarkGray)),
         )),
         Line::from(Span::styled(
-            "  Writes canonical/void-rules.toml only if it does not exist.",
+            "  Writes workspace/void-rules.toml only if it does not exist.",
             Style::default().fg(tone(Color::DarkGray)),
         )),
         Line::from(""),
@@ -207,10 +198,9 @@ pub(crate) fn render_new_project(frame: &mut Frame, app: &App, area: Rect, dimme
 }
 
 pub(crate) fn render_new_project_preview(frame: &mut Frame, app: &App, area: Rect, dimmed: bool) {
-    let cfg = app.config.get();
     let tone = |c| maybe_dim(c, dimmed);
     let block = Block::default()
-        .title(" New Project ")
+        .title(" New Workspace ")
         .title_style(
             Style::default()
                 .fg(tone(Color::Yellow))
@@ -222,23 +212,14 @@ pub(crate) fn render_new_project_preview(frame: &mut Frame, app: &App, area: Rec
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
-    let sync_mode = match cfg.defaults.sync.mode {
-        crate::config::SyncMode::WorkspaceOnly => "workspace_only",
-        crate::config::SyncMode::Pushback => "pushback",
-        crate::config::SyncMode::Bidirectional => "bidirectional",
-        crate::config::SyncMode::Pullthrough => "pullthrough",
-        crate::config::SyncMode::Direct => "direct",
-    };
-
-    let rows: [(&str, &str); 6] = [
-        ("Project name", "<empty>"),
-        ("Canonical dir", "<empty>"),
-        ("Sync mode", sync_mode),
+    let rows: [(&str, &str); 5] = [
+        ("Workspace name", "<empty>"),
+        ("Workspace dir", "<empty>"),
         (
-            "Project type",
+            "Workspace type",
             crate::new_project::ProjectType::None.display_name(),
         ),
-        ("Create", "Add project + write rules"),
+        ("Create", "Add workspace + write rules"),
         ("Cancel", "Back to sidebar"),
     ];
 

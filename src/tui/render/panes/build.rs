@@ -3,19 +3,19 @@ use super::*;
 pub(crate) fn render_container_picker(frame: &mut Frame, app: &mut App, area: Rect, dimmed: bool) {
     let cfg = app.config.get();
     let selected_ctr = app.container_picker.unwrap_or(0);
-    let project_name = app
+    let workspace_name = app
         .selected_project_idx()
-        .and_then(|pi| app.projects.get(pi))
+        .and_then(|pi| app.workspaces.get(pi))
         .map(|p| p.name.as_str())
-        .unwrap_or("(no project)");
+        .unwrap_or("(no workspace)");
 
     let tone = |c| maybe_dim(c, dimmed);
     let workspace_path = app
         .selected_project_idx()
-        .and_then(|pi| cfg.projects.get(pi))
+        .and_then(|pi| cfg.workspaces.get(pi))
         .map(|proj| crate::config::effective_workspace_path(proj, &cfg.workspace));
     let block = Block::default()
-        .title(format!(" Run Container for '{}' ", project_name))
+        .title(format!(" Run Container for '{}' ", workspace_name))
         .title_style(
             Style::default()
                 .fg(tone(Color::Cyan))

@@ -24,7 +24,7 @@ pub(crate) fn render_right_pane(frame: &mut Frame, app: &mut App, area: Rect) {
             {
                 render_build_output(frame, app, area, true);
             }
-            Some(SidebarItem::NewProject) => {
+            Some(SidebarItem::NewWorkspace) => {
                 if app.new_project.is_some() {
                     render_new_project(frame, app, area, true);
                 } else {
@@ -60,7 +60,7 @@ pub(crate) fn render_right_pane(frame: &mut Frame, app: &mut App, area: Rect) {
         return;
     }
 
-    if app.focus == Focus::NewProject {
+    if app.focus == Focus::NewWorkspace {
         render_new_project(frame, app, area, false);
         return;
     }
@@ -113,7 +113,7 @@ pub(crate) fn render_idle(frame: &mut Frame, area: Rect) {
     let lines = vec![
         Line::from(""),
         Line::from(Span::styled(
-            "  Select a project and press [↵] to launch a container.",
+            "  Select a workspace and press [↵] to launch a container.",
             Style::default().fg(Color::DarkGray),
         )),
         Line::from(""),
@@ -134,14 +134,11 @@ pub(crate) fn render_project_settings(
     dimmed: bool,
 ) {
     let cfg = app.config.get();
-    let Some(proj) = cfg.projects.get(project_idx) else {
+    let Some(proj) = cfg.workspaces.get(project_idx) else {
         render_idle(frame, area);
         return;
     };
 
-    let workspace_path = crate::config::effective_workspace_path(proj, &cfg.workspace);
-    let mode = crate::config::effective_sync_mode(proj, &cfg.defaults);
-    let watching = app.is_project_watching(project_idx);
     let tone = |c| maybe_dim(c, dimmed);
     let focused = app.focus == Focus::Settings;
     let border_style = if focused {
@@ -159,7 +156,7 @@ pub(crate) fn render_project_settings(
         .borders(Borders::ALL)
         .border_style(border_style);
 
-    let actions = App::settings_action_rows_for(mode.clone(), watching);
+    let actions = App::settings_action_rows_for();
     let cursor = if actions.is_empty() {
         0
     } else {
@@ -176,37 +173,6 @@ pub(crate) fn render_project_settings(
             Span::styled(
                 proj.canonical_path.display().to_string(),
                 Style::default().fg(tone(Color::White)),
-            ),
-        ]),
-        Line::from(vec![
-            Span::styled(
-                "  Workspace dir : ",
-                Style::default().fg(tone(Color::DarkGray)),
-            ),
-            Span::styled(
-                workspace_path.display().to_string(),
-                Style::default().fg(tone(Color::White)),
-            ),
-        ]),
-        Line::from(vec![
-            Span::styled(
-                "  Sync mode     : ",
-                Style::default().fg(tone(Color::DarkGray)),
-            ),
-            Span::styled(mode.to_string(), Style::default().fg(tone(Color::White))),
-        ]),
-        Line::from(vec![
-            Span::styled(
-                "  File watch    : ",
-                Style::default().fg(tone(Color::DarkGray)),
-            ),
-            Span::styled(
-                if watching { "enabled" } else { "disabled" },
-                Style::default().fg(if watching {
-                    tone(Color::Green)
-                } else {
-                    tone(Color::DarkGray)
-                }),
             ),
         ]),
         Line::from(""),
@@ -262,7 +228,7 @@ pub(crate) fn render_project_settings(
                     format!(
                         "  hostdo: {}, network: {}",
                         r.hostdo.commands.len(),
-                        r.network.rules.len()
+                        r.network.allowlist.len()
                     ),
                     Style::default().fg(tone(Color::White)),
                 ),

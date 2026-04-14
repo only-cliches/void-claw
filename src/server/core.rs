@@ -44,7 +44,7 @@ pub(super) async fn exec_handler(
     let cfg = state.config.get();
 
     // Find project config.
-    let proj = match cfg.projects.iter().find(|p| p.name == identity_project) {
+    let proj = match cfg.workspaces.iter().find(|p| p.name == identity_project) {
         Some(p) => p,
         None => {
             return server_deny(format!("unknown project '{}'", identity_project));
@@ -104,7 +104,7 @@ pub(super) async fn exec_handler(
 
     // Load composed rules from void-rules.toml files (global + all projects).
     let mut rules =
-        match config::load_composed_rules_for_project(&cfg, Some(identity_project.as_str())) {
+        match config::load_composed_rules_for_workspace(&cfg, Some(identity_project.as_str())) {
             Ok(rules) => rules,
             Err(e) => {
                 return (
@@ -118,9 +118,8 @@ pub(super) async fn exec_handler(
             }
         };
 
-    // Expand $CANONICAL / $WORKSPACE in rule cwds so matching works.
-    let effective_mount_target = identity_mount_target.as_str();
-    rules.expand_cwd_vars(&canonical_path, effective_mount_target);
+    // Expand $WORKSPACE in rule cwds so matching works.
+    rules.expand_cwd_vars(&canonical_path);
 
     // Command matching against the composed rules.
     let cmd_match = exec::find_matching_command(&exec_argv, &rules);

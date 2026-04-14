@@ -4,25 +4,24 @@ use std::path::PathBuf;
 
 use crate::config::{AliasValue, ApprovalMode, bool_true};
 
-// ── Projects ─────────────────────────────────────────────────────────────────
+// ── Workspaces ───────────────────────────────────────────────────────────────
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct ProjectConfig {
+#[serde(deny_unknown_fields)]
+pub struct WorkspaceConfig {
     pub name: String,
     pub canonical_path: PathBuf,
-    /// Defaults to `workspace.root/<name>` when absent.
+    /// Defaults to the canonical path when absent.
     pub workspace_path: Option<PathBuf>,
     #[serde(default = "bool_true")]
     pub disposable: bool,
     #[serde(default)]
     pub default_policy: ApprovalMode,
-    #[serde(default)]
-    pub exclude_patterns: Vec<String>,
     pub sync: Option<SyncOverride>,
-    pub hostdo: Option<ProjectHostdo>,
+    pub hostdo: Option<WorkspaceHostdo>,
 }
 
-impl Default for ProjectConfig {
+impl Default for WorkspaceConfig {
     fn default() -> Self {
         Self {
             name: String::new(),
@@ -30,7 +29,6 @@ impl Default for ProjectConfig {
             workspace_path: None,
             disposable: true,
             default_policy: ApprovalMode::default(),
-            exclude_patterns: Vec::new(),
             sync: None,
             hostdo: None,
         }
@@ -157,7 +155,7 @@ pub enum MountMode {
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct ProjectHostdo {
+pub struct WorkspaceHostdo {
     pub denied_executables: Option<Vec<String>>,
     pub denied_argument_fragments: Option<Vec<String>>,
     pub command_aliases: Option<HashMap<String, AliasValue>>,

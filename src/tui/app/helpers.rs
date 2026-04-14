@@ -45,8 +45,8 @@ pub(crate) fn encode_sgr_mouse(mouse: MouseEvent) -> Option<Vec<u8>> {
     };
 
     let cb = cb + button_code;
-    let x = mouse.column.saturating_add(1) as u16;
-    let y = mouse.row.saturating_add(1) as u16;
+    let x = mouse.column.saturating_add(1);
+    let y = mouse.row.saturating_add(1);
 
     let mut out = Vec::with_capacity(32);
     out.extend_from_slice(b"\x1b[<");
@@ -230,77 +230,6 @@ pub(crate) async fn run_build_shell_command(
     });
 }
 
-pub(crate) fn compute_tree_file_map(
-    root: &std::path::Path,
-    exclude_matcher: &crate::sync::ExcludeMatcher,
-) -> HashMap<PathBuf, FileSignature> {
-    let mut map = HashMap::new();
-    if !root.exists() {
-        return map;
-    }
-    for entry in walkdir::WalkDir::new(root)
-        .into_iter()
-        .filter_entry(|e| {
-            let rel = match e.path().strip_prefix(root) {
-                Ok(r) => r,
-                Err(_) => return true,
-            };
-            if rel.as_os_str().is_empty() {
-                return true;
-            }
-            !exclude_matcher.is_excluded(rel, e.file_type().is_dir())
-        })
-        .filter_map(|e| e.ok())
-    {
-        if entry.file_type().is_dir() {
-            continue;
-        }
-        let rel = match entry.path().strip_prefix(root) {
-            Ok(r) => r,
-            Err(_) => continue,
-        };
-        if rel.as_os_str().is_empty() {
-            continue;
-        }
-        if let Ok(md) = entry.metadata() {
-            let (mtime_secs, mtime_nanos) = md
-                .modified()
-                .ok()
-                .and_then(|m| m.duration_since(std::time::UNIX_EPOCH).ok())
-                .map(|d| (d.as_secs(), d.subsec_nanos()))
-                .unwrap_or((0, 0));
-            map.insert(
-                rel.to_path_buf(),
-                FileSignature {
-                    size: md.len(),
-                    mtime_secs,
-                    mtime_nanos,
-                },
-            );
-        }
-    }
-    map
-}
-
-pub(crate) fn diff_file_maps(
-    old: &HashMap<PathBuf, FileSignature>,
-    new: &HashMap<PathBuf, FileSignature>,
-) -> Vec<PathBuf> {
-    let mut changed = Vec::new();
-    for (path, new_sig) in new {
-        match old.get(path) {
-            Some(old_sig) if old_sig == new_sig => {}
-            _ => changed.push(path.clone()),
-        }
-    }
-    for path in old.keys() {
-        if !new.contains_key(path) {
-            changed.push(path.clone());
-        }
-    }
-    changed
-}
-
 pub(crate) fn host_bind_is_loopback(host: &str) -> bool {
     matches!(host, "127.0.0.1" | "localhost" | "::1")
 }
@@ -317,26 +246,6 @@ pub(crate) fn docker_image_exists(image: &str) -> std::io::Result<bool> {
 pub(crate) fn is_scroll_mode_toggle_key(key: KeyEvent) -> bool {
     (key.code == KeyCode::Char('s') && key.modifiers.contains(KeyModifiers::CONTROL))
         || (key.code == KeyCode::Char('\u{13}') && key.modifiers.is_empty())
-}
-
-pub(crate) fn next_sync_mode(mode: &SyncMode) -> SyncMode {
-    match mode {
-        SyncMode::WorkspaceOnly => SyncMode::Pullthrough,
-        SyncMode::Pullthrough => SyncMode::Pushback,
-        SyncMode::Pushback => SyncMode::Bidirectional,
-        SyncMode::Bidirectional => SyncMode::Direct,
-        SyncMode::Direct => SyncMode::WorkspaceOnly,
-    }
-}
-
-pub(crate) fn prev_sync_mode(mode: &SyncMode) -> SyncMode {
-    match mode {
-        SyncMode::WorkspaceOnly => SyncMode::Direct,
-        SyncMode::Direct => SyncMode::Bidirectional,
-        SyncMode::Bidirectional => SyncMode::Pushback,
-        SyncMode::Pushback => SyncMode::Pullthrough,
-        SyncMode::Pullthrough => SyncMode::WorkspaceOnly,
-    }
 }
 
 pub(crate) fn oneshot_dummy() -> tokio::sync::oneshot::Sender<NetworkDecision> {

@@ -1,13 +1,15 @@
 # void-claw.example.toml
 #
 # Main manager config for void-claw.
-# Per-project command rules, network policy, and agent instructions live in the
-# project's own void-rules.toml file, not here.
+# Per-workspace command rules, network policy, and agent instructions live in the
+# workspace's own void-rules.toml file, not here.
 
 # Directory used to resolve Dockerfiles and the Docker build context.
 # The init flow uses `./docker` when it exists, otherwise it falls back to
 # `~/.config/void-claw/docker`.
 docker_dir = __VOID_CLAW_DOCKER_DIR__
+
+[workspace]
 
 [manager]
 # Global rules file used by the manager for persisted approvals.
@@ -15,73 +17,17 @@ docker_dir = __VOID_CLAW_DOCKER_DIR__
 # `global_rules_file` is the clearer name to document.
 global_rules_file = "~/.config/void-claw/void-rules.toml"
 
-[workspace]
-# Root directory for managed workspace copies.
-# When a project does not set `workspace_path`, void-claw uses:
-#   <workspace.root>/<project.name>
-root = "~/agent_workspace"
-
 [agents.gemini]
 # Optional extra instructions appended into the generated Gemini guidance.
 # extra_instructions = ""
 
 # ---------------------------------------------------------------------------
-# Defaults applied to projects unless a project overrides them.
+# Defaults applied to workspaces unless a workspace overrides them.
 # ---------------------------------------------------------------------------
-
-[defaults.sync]
-# Sync mode for managed workspaces. One of:
-#   workspace_only  - no sync back to canonical
-#   pushback        - seed from canonical, then push changes back
-#   bidirectional   - sync both directions
-#   pullthrough     - canonical wins on conflict
-#   direct          - mount canonical_path directly, no managed copy
-mode = "pushback"
-
-# Whether deletes in the workspace can propagate back to canonical.
-delete_propagation = false
-
-# Whether renames in the workspace can propagate back to canonical.
-rename_propagation = false
-
-# How symlinks are handled during workspace copy.
-# One of: reject, copy, follow
-symlink_policy = "reject"
-
-# Conflict winner when both sides changed.
-# One of: preserve_canonical, preserve_workspace
-conflict_policy = "preserve_canonical"
-
-# Global exclude patterns for workspace population.
-# These are layered with:
-# - [[projects]].exclude_patterns
-# - exclude_patterns in the project's void-rules.toml
-global_exclude_patterns = [
-  ".*",
-  ".git",
-  ".git/**",
-  ".env",
-  ".env.*",
-  "*.pem",
-  "*.key",
-  "*.pfx",
-  "*.p12",
-  "id_rsa",
-  "id_ed25519",
-  "id_ecdsa",
-  ".ssh",
-  ".ssh/**",
-  ".gnupg",
-  ".gnupg/**",
-  ".aws",
-  ".aws/**",
-  ".claude",
-  ".claude/**",
-]
 
 [defaults.ui]
 # Width of the left sidebar in the main TUI, in columns.
-# The default is 32; increase this if your project names are longer.
+# The default is 32; increase this if your workspace names are longer.
 sidebar_width = 32
 
 [defaults.hostdo]
@@ -108,12 +54,11 @@ denied_argument_fragments = []
 # - a table with `cmd` and optional `cwd`
 #
 # `cwd` can use:
-# - "$CANONICAL" for the host repo path
-# - "$WORKSPACE" for the effective workspace path
+# - "$WORKSPACE" for the workspace path on the host
 #
 # Examples:
 # command_aliases = { tests = "cargo test" }
-# command_aliases = { lint = { cmd = "cargo clippy", cwd = "$CANONICAL" } }
+# command_aliases = { lint = { cmd = "cargo clippy", cwd = "$WORKSPACE" } }
 # command_aliases = { build = { cmd = "npm run build", cwd = "$WORKSPACE" } }
 # command_aliases = {}
 
@@ -182,11 +127,11 @@ vars = { NODE_ENV = "development" }
 # vars = { PYTHONUNBUFFERED = "1" }
 
 # ---------------------------------------------------------------------------
-# Managed projects are optional.
-# Add one [[projects]] block per canonical repository when you want Void Claw
-# to manage a workspace. The CLI can still launch without any projects defined.
-# Project-specific hostdo overrides, sync overrides, and exclude patterns belong
-# inside each [[projects]] block when you add one later.
+# Managed workspaces are optional.
+# Add one [[workspaces]] block per canonical repository when you want Void Claw
+# to manage a workspace. The CLI can still launch without any workspaces defined.
+# Workspace-specific hostdo overrides belong inside each [[workspaces]] block
+# when you add one later.
 # ---------------------------------------------------------------------------
 
 # ---------------------------------------------------------------------------

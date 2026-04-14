@@ -62,7 +62,6 @@ alacritty_terminal = "0.26"
 # Utilities
 anyhow = "1"
 dirs = "5"
-walkdir = "2"
 globset = "0.4"
 ignore = "0.4"
 chrono = { version = "0.4", features = ["serde"] }

@@ -60,7 +60,7 @@ impl App {
             }
         }
 
-        let proj = match cfg.projects.get(pi) {
+        let proj = match cfg.workspaces.get(pi) {
             Some(p) => p.clone(),
             None => return,
         };
@@ -103,7 +103,8 @@ impl App {
             &mount_source_path,
             &proj.canonical_path,
             &proj.name,
-            crate::config::effective_sync_mode(&proj, &cfg.defaults) == SyncMode::Direct,
+            crate::config::effective_sync_mode(&proj, &cfg.defaults)
+                == crate::config::SyncMode::Direct,
             &ctr.mount_target,
             &exec_url,
             &proxy_url,
