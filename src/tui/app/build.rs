@@ -1,7 +1,7 @@
 use super::*;
 
 impl App {
-    pub const BASE_IMAGE_TAG: &'static str = "void-claw-base:local";
+    pub const BASE_IMAGE_TAG: &'static str = "harness-hat-base:local";
 
     pub(crate) fn start_docker_build(
         &mut self,
@@ -100,7 +100,7 @@ impl App {
                 Self::BASE_IMAGE_TAG.to_string(),
                 "-f".to_string(),
                 docker_dir
-                    .join("void-claw-base.dockerfile")
+                    .join("harness-hat-base.dockerfile")
                     .display()
                     .to_string(),
                 docker_dir.display().to_string(),
@@ -117,11 +117,11 @@ impl App {
             .split('/')
             .next_back()
             .unwrap_or(image);
-        if raw_name == "void-claw-base" {
-            return "void-claw-base".to_string();
+        if raw_name == "harness-hat-base" {
+            return "harness-hat-base".to_string();
         }
         raw_name
-            .strip_prefix("void-claw-")
+            .strip_prefix("harness-hat-")
             .unwrap_or(raw_name)
             .to_string()
     }

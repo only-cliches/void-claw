@@ -4,7 +4,7 @@ impl App {
     fn watched_rules_paths(cfg: &crate::config::Config) -> Vec<PathBuf> {
         let mut paths = Vec::with_capacity(cfg.workspaces.len());
         for workspace in &cfg.workspaces {
-            paths.push(workspace.canonical_path.join("void-rules.toml"));
+            paths.push(workspace.canonical_path.join("harness-rules.toml"));
         }
         paths.sort();
         paths.dedup();
@@ -449,11 +449,11 @@ impl App {
     }
 
     pub(crate) fn log_project_rules_status(&mut self, project: &crate::config::WorkspaceConfig) {
-        let rules_path = project.canonical_path.join("void-rules.toml");
+        let rules_path = project.canonical_path.join("harness-rules.toml");
         if !rules_path.exists() {
             self.push_log(
                 format!(
-                    "Searched for rules at {} but void-rules.toml was not found",
+                    "Searched for rules at {} but harness-rules.toml was not found",
                     rules_path.display()
                 ),
                 false,

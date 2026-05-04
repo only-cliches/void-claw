@@ -249,7 +249,7 @@ pub(super) fn deny(reason: String) -> Response {
 ///
 /// This function checks for:
 /// 1. A valid `Authorization` header with a `Bearer` token matching the server's secret token.
-/// 2. A non-empty `x-void-claw-session-token` header.
+/// 2. A non-empty `x-harness-hat-session-token` header.
 /// 3. That the session token corresponds to an active session in the `SessionRegistry`.
 ///
 /// Returns `Ok(SessionIdentity)` on success, or an `Err(Response)` with an appropriate
@@ -278,7 +278,7 @@ pub(super) fn require_session_identity(
 
     // Extract and validate the session token.
     let session_token = headers
-        .get("x-void-claw-session-token")
+        .get("x-harness-hat-session-token")
         .and_then(|v| v.to_str().ok())
         .unwrap_or("")
         .trim();
@@ -597,7 +597,7 @@ mod tests {
         let mut headers = HeaderMap::new();
         headers.insert("authorization", "Bearer invalid_token".parse().unwrap());
         headers.insert(
-            "x-void-claw-session-token",
+            "x-harness-hat-session-token",
             "some_session_token".parse().unwrap(),
         );
 
@@ -641,7 +641,7 @@ mod tests {
         let mut headers = HeaderMap::new();
         headers.insert("authorization", "Bearer test_token".parse().unwrap());
         headers.insert(
-            "x-void-claw-session-token",
+            "x-harness-hat-session-token",
             "unknown_session".parse().unwrap(),
         );
 
@@ -674,7 +674,7 @@ mod tests {
         let mut headers = HeaderMap::new();
         headers.insert("authorization", "Bearer test_token".parse().unwrap());
         headers.insert(
-            "x-void-claw-session-token",
+            "x-harness-hat-session-token",
             "valid_session".parse().unwrap(),
         );
 

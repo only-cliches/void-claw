@@ -1,7 +1,7 @@
 {
-  "name": "Solid Park Panda PWA",
-  "short_name": "SolidPWA",
-  "description": "A TypeScript Progressive Web App built with SolidJS, Park UI, and PandaCSS.",
+  "name": "Harness Hat",
+  "short_name": "HarnessHat",
+  "description": "Harness Hat progressive web app.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

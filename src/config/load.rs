@@ -12,7 +12,7 @@ use crate::config::{
 // ── Rule loading ─────────────────────────────────────────────────────────────
 
 /// Load and compose rules for a specific project (global + that project's
-/// void-rules.toml). Called at request time so edits take effect without
+/// harness-rules.toml). Called at request time so edits take effect without
 /// restart.
 #[instrument(skip(config))]
 pub fn load_composed_rules_for_workspace(
@@ -35,7 +35,7 @@ pub fn load_composed_rules_for_workspace(
     let mut proj_rules = Vec::new();
     if let Some(project_name) = project_name {
         if let Some(project) = config.workspaces.iter().find(|p| p.name == project_name) {
-            let path = project.canonical_path.join("void-rules.toml");
+            let path = project.canonical_path.join("harness-rules.toml");
             match crate::rules::load(&path) {
                 Ok(rules) => proj_rules.push(rules),
                 Err(e) => {
@@ -245,7 +245,7 @@ pub fn image_tag_for_stem(stem: &str) -> String {
     if slug.is_empty() {
         slug.push_str("default");
     }
-    format!("void-claw-{slug}:local")
+    format!("harness-hat-{slug}:local")
 }
 
 fn validate(config: &Config) -> Result<()> {
@@ -459,8 +459,8 @@ pub fn effective_command_aliases(
     {
         out.extend(project_aliases);
     }
-    // Layer on aliases from the project's void-rules.toml (highest priority).
-    let rules_path = proj.canonical_path.join("void-rules.toml");
+    // Layer on aliases from the project's harness-rules.toml (highest priority).
+    let rules_path = proj.canonical_path.join("harness-rules.toml");
     if let Ok(rules) = crate::rules::load(&rules_path) {
         if !rules.hostdo.command_aliases.is_empty() {
             out.extend(rules.hostdo.command_aliases);

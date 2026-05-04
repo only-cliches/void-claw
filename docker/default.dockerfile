@@ -1,12 +1,12 @@
-# void-claw default image
+# harness-hat default image
 #
-# Uses the shared Ubuntu base (`void-claw-base:local`) so strict-network
+# Uses the shared Ubuntu base (`harness-hat-base:local`) so strict-network
 # and proxy bootstrap behavior stays consistent with manager-launched images.
 #
 # Copy this file to create per-project variants, e.g.:
 #   rust.dockerfile
 
-FROM void-claw-base:local
+FROM harness-hat-base:local
 
 USER root
 RUN npm install -g @openai/codex @google/gemini-cli opencode-ai

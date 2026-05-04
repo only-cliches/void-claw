@@ -423,12 +423,12 @@ impl App {
             Ok(true) => self.push_log(
                 format!(
                     "created {}",
-                    workspace_path.join("void-rules.toml").display()
+                    workspace_path.join("harness-rules.toml").display()
                 ),
                 false,
             ),
             Err(e) => {
-                self.set_new_project_error(format!("failed writing void-rules.toml: {e}"));
+                self.set_new_project_error(format!("failed writing harness-rules.toml: {e}"));
                 return;
             }
         };

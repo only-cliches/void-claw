@@ -15,7 +15,7 @@ pub struct Config {
     pub workspace: WorkspaceSection,
     /// Directory containing the repository root used for Docker builds.
     /// This is required at startup and is auto-populated by
-    /// `void-claw-manager --init`.
+    /// `harness-hat-manager --init`.
     #[serde(default)]
     pub docker_dir: PathBuf,
     #[serde(default)]
@@ -42,7 +42,7 @@ impl Default for Config {
             manager: ManagerConfig::default(),
             workspace: WorkspaceSection::default(),
             // `docker_dir` is expected to be populated during
-            // `void-claw-manager --init`.
+            // `harness-hat-manager --init`.
             // An empty PathBuf here signifies an uninitialized state.
             docker_dir: PathBuf::new(),
             defaults: DefaultsConfig::default(),
@@ -58,7 +58,7 @@ impl Default for Config {
 
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
 pub struct ManagerConfig {
-    /// Path to the global void-rules.toml where auto-approved commands are persisted.
+    /// Path to the global harness-rules.toml where auto-approved commands are persisted.
     /// Created on first use if it does not exist.
     #[serde(alias = "rules_file")]
     pub global_rules_file: PathBuf,
@@ -267,7 +267,7 @@ fn default_host() -> String {
 }
 /// Provides the default value for `HostdoDefaults.token_env_var`.
 fn default_token_env() -> String {
-    "VOID_CLAW_TOKEN".to_string()
+    "HARNESS_HAT_TOKEN".to_string()
 }
 /// Provides the default value for `HostdoDefaults.denied_executables`.
 fn default_denied_executables() -> Vec<String> {
@@ -299,7 +299,7 @@ pub struct ProxyDefaults {
     #[serde(default = "default_host")]
     pub proxy_host: String,
     /// When enabled, containers are launched with NET_ADMIN + root so they can:
-    ///   1) transparently redirect outbound HTTP/HTTPS through the void-claw proxy
+    ///   1) transparently redirect outbound HTTP/HTTPS through the harness-hat proxy
     ///   2) install strict outbound egress rules (iptables) to block direct egress
     ///      outside the proxy and exec bridge.
     ///

@@ -1,4 +1,4 @@
-/// Certificate Authority management for the void-claw MITM proxy.
+/// Certificate Authority management for the harness-hat MITM proxy.
 ///
 /// Generates a self-signed CA on first run and persists it to disk.
 /// Derives per-domain leaf certificates on demand (cached in memory).
@@ -94,10 +94,10 @@ impl CaStore {
         params.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
         params
             .distinguished_name
-            .push(DnType::CommonName, "Void Claw Proxy CA");
+            .push(DnType::CommonName, "Harness Hat Proxy CA");
         params
             .distinguished_name
-            .push(DnType::OrganizationName, "void-claw");
+            .push(DnType::OrganizationName, "harness-hat");
         params.not_before = rcgen::date_time_ymd(2024, 1, 1);
         params.not_after = rcgen::date_time_ymd(2124, 1, 1);
         params.self_signed(key).context("generating CA certificate")

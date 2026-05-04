@@ -17,7 +17,7 @@ pub async fn run() -> Result<()> {
         crate::init::write_sample_config(&init_path)?;
         info!("config written to: {}", init_path.display());
         info!(
-            "edit it, then run: void-claw-manager --config {}",
+            "edit it, then run: harness-hat-manager --config {}",
             init_path.display()
         );
         return Ok(());
@@ -35,7 +35,7 @@ pub async fn run() -> Result<()> {
 
     if which::which("docker").is_err() {
         anyhow::bail!(
-            "docker not found in PATH — void-claw-manager requires Docker to run containers"
+            "docker not found in PATH — harness-hat-manager requires Docker to run containers"
         );
     }
 
@@ -130,7 +130,7 @@ pub fn resolve_or_prompt_config_path(explicit: Option<PathBuf>) -> Result<Option
 }
 
 pub fn discover_default_config_path() -> Option<PathBuf> {
-    let cwd_candidate = PathBuf::from("void-claw.toml");
+    let cwd_candidate = PathBuf::from("harness-hat.toml");
     if cwd_candidate.exists() {
         return Some(cwd_candidate);
     }
@@ -144,7 +144,7 @@ pub fn discover_default_config_path() -> Option<PathBuf> {
 pub fn default_home_config_path() -> Result<PathBuf> {
     let home =
         dirs::home_dir().ok_or_else(|| anyhow::anyhow!("cannot determine home directory"))?;
-    Ok(home.join(".config/void-claw/void-claw.toml"))
+    Ok(home.join(".config/harness-hat/harness-hat.toml"))
 }
 
 enum ConfigCreationChoice {
@@ -162,7 +162,7 @@ fn create_config_from_prompt() -> Result<Option<PathBuf>> {
             Ok(Some(path))
         }
         ConfigCreationChoice::CreateCwd => {
-            let path = PathBuf::from("void-claw.toml");
+            let path = PathBuf::from("harness-hat.toml");
             crate::init::write_sample_config(&path)?;
             println!("created config: {}", path.display());
             Ok(Some(path))
@@ -178,11 +178,11 @@ fn prompt_config_creation_choice() -> Result<ConfigCreationChoice> {
     let cwd = std::env::current_dir()?;
     println!("No config file found.");
     println!(
-        "1. Create default config at ~/.config/void-claw/void-claw.toml {}",
+        "1. Create default config at ~/.config/harness-hat/harness-hat.toml {}",
         "(Recommended)".dark_grey()
     );
     println!(
-        "2. Create default config at {}/void-claw.toml",
+        "2. Create default config at {}/harness-hat.toml",
         cwd.display()
     );
     println!("3. Cancel and close");
@@ -222,7 +222,7 @@ mod tests {
 
     #[test]
     fn resolve_or_prompt_config_path_returns_explicit_without_prompting() {
-        let explicit = PathBuf::from("/tmp/explicit-void-claw.toml");
+        let explicit = PathBuf::from("/tmp/explicit-harness-hat.toml");
         let resolved = resolve_or_prompt_config_path(Some(explicit.clone())).expect("resolve path");
         assert_eq!(resolved, Some(explicit));
     }

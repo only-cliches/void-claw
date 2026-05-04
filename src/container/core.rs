@@ -329,7 +329,7 @@ mod tests {
     #[test]
     fn gemini_home_args_mounts_both_possible_homes() {
         let root =
-            std::env::temp_dir().join(format!("void-claw-gemini-home-{}", uuid::Uuid::new_v4()));
+            std::env::temp_dir().join(format!("harness-hat-gemini-home-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&root).expect("create temp dir");
         let mut args = Vec::new();
         append_gemini_home_args(&mut args, &root).expect("append gemini args");
@@ -382,7 +382,7 @@ mod tests {
     #[test]
     fn codex_home_args_mounts_correct_paths() {
         let root =
-            std::env::temp_dir().join(format!("void-claw-codex-home-{}", uuid::Uuid::new_v4()));
+            std::env::temp_dir().join(format!("harness-hat-codex-home-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&root).expect("create temp dir");
         let mut args = Vec::new();
         super::append_codex_home_args(&mut args, &root).expect("append codex args");
@@ -426,7 +426,7 @@ pub(crate) fn extract_claude_keychain_credential() -> Option<String> {
 
 #[cfg(target_os = "macos")]
 pub(crate) fn read_claude_setup_token() -> Option<(String, ClaudeSessionSource)> {
-    if let Some(token) = read_keychain_value("void-claw-claude-setup-token") {
+    if let Some(token) = read_keychain_value("harness-hat-claude-setup-token") {
         return Some((token, ClaudeSessionSource::SetupTokenKeychain));
     }
     read_setup_token_file().map(|token| (token, ClaudeSessionSource::SetupTokenFile))
@@ -439,7 +439,7 @@ pub(crate) fn read_claude_setup_token() -> Option<(String, ClaudeSessionSource)>
 
 fn read_setup_token_file() -> Option<String> {
     let path = dirs::config_dir()?
-        .join("void-claw")
+        .join("harness-hat")
         .join("claude-setup-token");
     let contents = std::fs::read_to_string(path).ok()?;
     let token = contents.trim().to_string();

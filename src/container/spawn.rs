@@ -50,7 +50,7 @@ pub fn spawn(
     rows: u16,
     cols: u16,
 ) -> Result<(ContainerSession, Vec<String>)> {
-    let ca_env_path = "/usr/local/share/ca-certificates/void-claw-ca.crt";
+    let ca_env_path = "/usr/local/share/ca-certificates/harness-hat-ca.crt";
     let no_proxy = if strict_network {
         compose_no_proxy(&[])
     } else {
@@ -58,9 +58,10 @@ pub fn spawn(
     };
     let mount_str = ctr.mount_target.display().to_string();
 
-    let cidfile = std::env::temp_dir().join(format!("void-claw-cid-{}.txt", uuid::Uuid::new_v4()));
+    let cidfile =
+        std::env::temp_dir().join(format!("harness-hat-cid-{}.txt", uuid::Uuid::new_v4()));
     let docker_run_name = format!(
-        "void-claw-{}-{}",
+        "harness-hat-{}-{}",
         sanitize_docker_name(&ctr.name),
         uuid::Uuid::new_v4().simple()
     );
@@ -128,7 +129,7 @@ pub fn spawn(
 
     // Prepare secure env file to prevent token leakage via `ps`
     let mut env_file = tempfile::Builder::new()
-        .prefix("void-claw-env-")
+        .prefix("harness-hat-env-")
         .tempfile()
         .context("failed to create temp env file")?;
 
@@ -146,19 +147,19 @@ pub fn spawn(
         writeln!(env_file, "{var}={ca_env_path}")?;
     }
 
-    writeln!(env_file, "VOID_CLAW_TOKEN={token}")?;
-    writeln!(env_file, "VOID_CLAW_SESSION_TOKEN={session_token}")?;
-    writeln!(env_file, "VOID_CLAW_PROJECT={project_name}")?;
-    writeln!(env_file, "VOID_CLAW_MOUNT_TARGET={mount_str}")?;
-    writeln!(env_file, "VOID_CLAW_URL={container_exec_url}")?;
+    writeln!(env_file, "HARNESS_HAT_TOKEN={token}")?;
+    writeln!(env_file, "HARNESS_HAT_SESSION_TOKEN={session_token}")?;
+    writeln!(env_file, "HARNESS_HAT_PROJECT={project_name}")?;
+    writeln!(env_file, "HARNESS_HAT_MOUNT_TARGET={mount_str}")?;
+    writeln!(env_file, "HARNESS_HAT_URL={container_exec_url}")?;
     writeln!(
         env_file,
-        "VOID_CLAW_STRICT_NETWORK={}",
+        "HARNESS_HAT_STRICT_NETWORK={}",
         if strict_network { "1" } else { "0" }
     )?;
     writeln!(
         env_file,
-        "VOID_CLAW_SCOPED_PROXY_ADDR={container_proxy_addr}"
+        "HARNESS_HAT_SCOPED_PROXY_ADDR={container_proxy_addr}"
     )?;
 
     if !strict_network {
@@ -317,9 +318,9 @@ pub fn spawn(
                     docker_args.push(format!("CLAUDE_CODE_OAUTH_TOKEN={tok}"));
                 }
 
-                let staging_path = "/tmp/.zc-claude-credentials.json";
+                let staging_path = "/tmp/.harness-hat-claude-credentials.json";
                 tempfile::Builder::new()
-                    .prefix("void-claw-claude-cred-")
+                    .prefix("harness-hat-claude-cred-")
                     .suffix(".json")
                     .tempfile()
                     .ok()
@@ -443,8 +444,8 @@ pub fn spawn(
 
 /// Launch a one-shot passthrough container session.
 ///
-/// Unlike `spawn`, this path does not inject void-claw proxy/hostdo runtime
-/// environment variables. It is used by the `void-claw -- ...` wrapper.
+/// Unlike `spawn`, this path does not inject harness-hat proxy/hostdo runtime
+/// environment variables. It is used by the `harness-hat -- ...` wrapper.
 #[instrument(skip(command_argv, workspace_path, mount_target, mounts, env_passthrough))]
 pub fn spawn_passthrough(
     image: &str,
@@ -460,9 +461,10 @@ pub fn spawn_passthrough(
     cols: u16,
 ) -> Result<ContainerSession> {
     let mount_str = mount_target.display().to_string();
-    let cidfile = std::env::temp_dir().join(format!("void-claw-cid-{}.txt", uuid::Uuid::new_v4()));
+    let cidfile =
+        std::env::temp_dir().join(format!("harness-hat-cid-{}.txt", uuid::Uuid::new_v4()));
     let docker_run_name = format!(
-        "void-claw-{}-{}",
+        "harness-hat-{}-{}",
         sanitize_docker_name(image_name),
         uuid::Uuid::new_v4().simple()
     );

@@ -1,24 +1,24 @@
 [package]
-name = "void-claw"
+name = "harness-hat"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.85"
 description = "Zero-trust container manager for AI coding agents"
 license = "MIT"
 readme = "README.md"
-repository = "https://github.com/only-cliches/void-claw"
-homepage = "https://github.com/only-cliches/void-claw"
+repository = "https://github.com/only-cliches/harness-hat"
+homepage = "https://github.com/only-cliches/harness-hat"
 keywords = ["ai", "agents", "sandbox", "docker", "terminal"]
 categories = ["command-line-utilities", "development-tools"]
 exclude = ["target/", ".git/", ".github/"]
 
 [[bin]]
-name = "void-claw"
+name = "harness-hat"
 path = "src/main.rs"
 
 [[bin]]
-name = "void-claw-manager"
-path = "src/bin/void-claw-manager.rs"
+name = "harness-hat-manager"
+path = "src/bin/harness-hat-manager.rs"
 
 [dependencies]
 # CLI

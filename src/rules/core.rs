@@ -1,6 +1,6 @@
-/// Parses `void-rules.toml` files and composes global + per-project rules.
+/// Parses `harness-rules.toml` files and composes global + per-project rules.
 ///
-/// `void-rules.toml` lives in the canonical project root (committed to git).
+/// `harness-rules.toml` lives in the canonical project root (committed to git).
 /// It controls what the AI agent is allowed to do: which host-side commands
 /// can run, and which network destinations are reachable.
 use anyhow::{Context, Result};
@@ -54,13 +54,13 @@ impl Default for NetworkPolicy {
     }
 }
 
-// ── void-rules.toml schema ───────────────────────────────────────────────────
+// ── harness-rules.toml schema ───────────────────────────────────────────────────
 
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
 #[serde(deny_unknown_fields)]
 pub struct ProjectRules {
     /// Optional instructions for a human or LLM agent. This field is preserved
-    /// across automatic edits to this file (e.g. when void-claw appends a new
+    /// across automatic edits to this file (e.g. when harness-hat appends a new
     /// `hostdo` command rule).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub llm_instructions: Option<String>,
@@ -359,16 +359,16 @@ pub fn parse_network_allowlist_rule(raw: &str) -> Result<NetworkRule> {
 
 // ── Loading / saving ─────────────────────────────────────────────────────────
 
-/// Load a `void-rules.toml` file.  Returns a default (empty) rule set if the
+/// Load a `harness-rules.toml` file.  Returns a default (empty) rule set if the
 /// file does not exist, rather than an error.
 pub fn load(path: &Path) -> Result<ProjectRules> {
     if !path.exists() {
         return Ok(ProjectRules::default());
     }
     let raw = std::fs::read_to_string(path)
-        .with_context(|| format!("reading void-rules.toml: {}", path.display()))?;
+        .with_context(|| format!("reading harness-rules.toml: {}", path.display()))?;
     let parsed: ProjectRules = toml::from_str(&raw)
-        .with_context(|| format!("parsing void-rules.toml: {}", path.display()))?;
+        .with_context(|| format!("parsing harness-rules.toml: {}", path.display()))?;
     for entry in &parsed.network.allowlist {
         parse_network_allowlist_rule(entry).with_context(|| {
             format!(
@@ -427,8 +427,8 @@ pub fn render_rules_file(rules: &ProjectRules, is_new: bool) -> Result<String> {
 }
 
 const RULES_FILE_HEADER: &str = "\
-# void-rules.toml — policy for what the AI agent can do in this project.
-# Commit this file to your repository. void-claw reads it but never pushes
+# harness-rules.toml — policy for what the AI agent can do in this project.
+# Commit this file to your repository. harness-hat reads it but never pushes
 # changes back during workspace sync.
 #
 # Preferred place for *human/LLM instructions*:

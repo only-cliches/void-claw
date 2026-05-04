@@ -96,7 +96,7 @@ pub struct ContainerDef {
     #[serde(default)]
     pub env_passthrough: Vec<String>,
     /// Hostnames/domains to add to NO_PROXY for this container.
-    /// Use when specific endpoints must bypass the void-claw proxy.
+    /// Use when specific endpoints must bypass the harness-hat proxy.
     #[serde(default)]
     pub bypass_proxy: Vec<String>,
 }
@@ -229,7 +229,7 @@ pub struct LoggingConfig {
     /// Directory for runtime logs and local runtime state files.
     #[serde(default = "default_log_dir")]
     pub log_dir: PathBuf,
-    /// Stable instance identifier persisted into `void-claw.toml`.
+    /// Stable instance identifier persisted into `harness-hat.toml`.
     /// Used as `service.instance.id` in OpenTelemetry exports.
     #[serde(default)]
     pub instance_id: Option<String>,
@@ -248,7 +248,7 @@ impl Default for LoggingConfig {
 }
 
 fn default_log_dir() -> PathBuf {
-    PathBuf::from("~/.local/share/void-claw")
+    PathBuf::from("~/.local/share/harness-hat")
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]

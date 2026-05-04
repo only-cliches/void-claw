@@ -320,7 +320,7 @@ impl App {
         cfg.workspaces
             .iter()
             .find(|p| p.name == project_name)
-            .map(|p| p.canonical_path.join("void-rules.toml"))
+            .map(|p| p.canonical_path.join("harness-rules.toml"))
     }
 
     pub(crate) fn sync_rules_to_workspace(&mut self, project_name: &str) {

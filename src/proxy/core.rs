@@ -1,9 +1,9 @@
-/// MITM HTTP/HTTPS proxy enforcing network policies from void-rules.toml.
+/// MITM HTTP/HTTPS proxy enforcing network policies from harness-rules.toml.
 ///
 /// Containers route all traffic through this proxy. Plain HTTP requests are
 /// intercepted and parsed directly. HTTPS traffic is intercepted via CONNECT
 /// tunnels: the proxy terminates TLS with a per-domain leaf cert signed by
-/// the void-claw CA (which containers are configured to trust), inspects the
+/// the harness-hat CA (which containers are configured to trust), inspects the
 /// inner HTTP request, then forwards to the real server.
 ///
 /// Network policy (auto/prompt/deny) is determined by matching the composed
@@ -410,7 +410,7 @@ async fn handle_transparent_tls(mut stream: TcpStream, state: ProxyState) -> Res
         }
     };
     if !allowed {
-        write_error_any(&mut tls_stream, 403, "Forbidden by void-claw policy").await?;
+        write_error_any(&mut tls_stream, 403, "Forbidden by harness-hat policy").await?;
         return Ok(());
     }
     let url = format!("https://{host}{path}");

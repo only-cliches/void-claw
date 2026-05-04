@@ -298,7 +298,7 @@ pub(crate) fn render_remove_workspace_confirm_overlay(frame: &mut Frame, app: &A
             Style::default().fg(Color::White),
         )),
         Line::from(Span::styled(
-            "  and remove it from void-claw.toml.",
+            "  and remove it from harness-hat.toml.",
             Style::default().fg(Color::White),
         )),
         Line::from(""),
@@ -348,7 +348,7 @@ pub(crate) fn render_base_rules_changed_overlay(frame: &mut Frame, app: &App, ar
         )),
         Line::from(""),
         Line::from(Span::styled(
-            "  Rules file changed while Void Claw is running.",
+            "  Rules file changed while Harness Hat is running.",
             Style::default().fg(Color::White),
         )),
         Line::from(Span::styled(

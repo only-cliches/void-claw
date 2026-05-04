@@ -5,5 +5,5 @@ use anyhow::Result;
 // held in App across await points in the TUI event loop.
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<()> {
-    void_claw::manager::run().await
+    harness_hat::manager::run().await
 }

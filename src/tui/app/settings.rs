@@ -17,7 +17,7 @@ impl App {
             SettingsActionRow {
                 key: 'r',
                 label: "Reload rules".to_string(),
-                desc: "Rescan and reload void-rules.toml for this workspace.",
+                desc: "Rescan and reload harness-rules.toml for this workspace.",
                 action: SettingsAction::ReloadRules,
             },
             SettingsActionRow {
@@ -447,7 +447,7 @@ impl App {
             match docker_image_exists(base_image) {
                 Ok(true) => {}
                 Ok(false) => {
-                    let base_dockerfile = cfg.docker_dir.join("void-claw-base.dockerfile");
+                    let base_dockerfile = cfg.docker_dir.join("harness-hat-base.dockerfile");
                     if !base_dockerfile.exists() {
                         self.push_log(
                             format!(
@@ -466,7 +466,7 @@ impl App {
                     shell_commands.push(shell_command_for_docker_args(&base_cmd));
                 }
                 Err(e) => {
-                    let base_dockerfile = cfg.docker_dir.join("void-claw-base.dockerfile");
+                    let base_dockerfile = cfg.docker_dir.join("harness-hat-base.dockerfile");
                     if !base_dockerfile.exists() {
                         self.push_log(
                             format!(

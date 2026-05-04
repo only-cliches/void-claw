@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-killme — void-claw container exit command.
+killme — harness-hat container exit command.
 
-Requests that the void-claw manager stop the current container session.
+Requests that the harness-hat manager stop the current container session.
 
 Environment variables:
-  VOID_CLAW_URL      Base URL of the void-claw manager (default: http://127.0.0.1:7878)
-  VOID_CLAW_TOKEN    Bearer token shown by the void-claw TUI           (required)
-  VOID_CLAW_SESSION_TOKEN  Per-session token injected by void-claw     (required)
+  HARNESS_HAT_URL      Base URL of the harness-hat manager (default: http://127.0.0.1:7878)
+  HARNESS_HAT_TOKEN    Bearer token shown by the harness-hat TUI           (required)
+  HARNESS_HAT_SESSION_TOKEN  Per-session token injected by harness-hat     (required)
 """
 
 import json
@@ -44,16 +44,16 @@ def _candidate_base_urls(base_url: str) -> list[str]:
 
 
 def main() -> None:
-    base_url = os.environ.get("VOID_CLAW_URL", "http://127.0.0.1:7878").rstrip("/")
+    base_url = os.environ.get("HARNESS_HAT_URL", "http://127.0.0.1:7878").rstrip("/")
 
-    token = os.environ.get("VOID_CLAW_TOKEN", "")
+    token = os.environ.get("HARNESS_HAT_TOKEN", "")
     if not token:
-        print("killme: VOID_CLAW_TOKEN is not set", file=sys.stderr)
+        print("killme: HARNESS_HAT_TOKEN is not set", file=sys.stderr)
         sys.exit(1)
 
-    session_token = os.environ.get("VOID_CLAW_SESSION_TOKEN", "")
+    session_token = os.environ.get("HARNESS_HAT_SESSION_TOKEN", "")
     if not session_token:
-        print("killme: VOID_CLAW_SESSION_TOKEN is not set", file=sys.stderr)
+        print("killme: HARNESS_HAT_SESSION_TOKEN is not set", file=sys.stderr)
         sys.exit(1)
 
     body = json.dumps({}).encode()
@@ -68,7 +68,7 @@ def main() -> None:
             headers={
                 "Authorization": f"Bearer {token}",
                 "Content-Type": "application/json",
-                "x-void-claw-session-token": session_token,
+                "x-harness-hat-session-token": session_token,
             },
             method="POST",
         )
@@ -97,7 +97,7 @@ def main() -> None:
     reason = getattr(last_err, "reason", last_err)
     print(f"killme: request failed: {reason}", file=sys.stderr)
     print(
-        f"  Is void-claw running? Is VOID_CLAW_URL correct? ({base_url})",
+        f"  Is harness-hat running? Is HARNESS_HAT_URL correct? ({base_url})",
         file=sys.stderr,
     )
     sys.exit(1)

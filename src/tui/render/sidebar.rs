@@ -207,11 +207,11 @@ pub(crate) fn render_project_settings(
         )));
     }
 
-    let rules_path = proj.canonical_path.join("void-rules.toml");
+    let rules_path = proj.canonical_path.join("harness-rules.toml");
     let rules_status: Vec<Span> = if !rules_path.exists() {
         vec![
             Span::styled(
-                "  void-rules.toml: ",
+                "  harness-rules.toml: ",
                 Style::default().fg(tone(Color::DarkGray)),
             ),
             Span::styled("Not Found", Style::default().fg(tone(Color::Yellow))),
@@ -220,7 +220,7 @@ pub(crate) fn render_project_settings(
         match crate::rules::load(&rules_path) {
             Ok(r) => vec![
                 Span::styled(
-                    "  void-rules.toml: ",
+                    "  harness-rules.toml: ",
                     Style::default().fg(tone(Color::DarkGray)),
                 ),
                 Span::styled("Loaded", Style::default().fg(tone(Color::Green))),
@@ -235,7 +235,7 @@ pub(crate) fn render_project_settings(
             ],
             Err(_) => vec![
                 Span::styled(
-                    "  void-rules.toml: ",
+                    "  harness-rules.toml: ",
                     Style::default().fg(tone(Color::DarkGray)),
                 ),
                 Span::styled("Error", Style::default().fg(tone(Color::Red))),

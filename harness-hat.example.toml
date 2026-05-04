@@ -1,13 +1,13 @@
-# void-claw.example.toml
+# harness-hat.example.toml
 #
-# Main manager config for void-claw.
+# Main manager config for harness-hat.
 # Per-workspace command rules, network policy, and agent instructions live in the
-# workspace's own void-rules.toml file, not here.
+# workspace's own harness-rules.toml file, not here.
 
 # Directory used to resolve Dockerfiles and the Docker build context.
 # The init flow uses `./docker` when it exists, otherwise it falls back to
-# `~/.config/void-claw/docker`.
-docker_dir = __VOID_CLAW_DOCKER_DIR__
+# `~/.config/harness-hat/docker`.
+docker_dir = __HARNESS_HAT_DOCKER_DIR__
 
 [workspace]
 
@@ -15,7 +15,7 @@ docker_dir = __VOID_CLAW_DOCKER_DIR__
 # Global rules file used by the manager for persisted approvals.
 # Use the canonical key below. `rules_file` still parses as an alias, but
 # `global_rules_file` is the clearer name to document.
-global_rules_file = "~/.config/void-claw/void-rules.toml"
+global_rules_file = "~/.config/harness-hat/harness-rules.toml"
 
 [agents.gemini]
 # Optional extra instructions appended into the generated Gemini guidance.
@@ -39,7 +39,7 @@ server_port = 7878
 server_host = "0.0.0.0"
 
 # Env var name that carries the shared auth token for the exec bridge.
-token_env_var = "VOID_CLAW_TOKEN"
+token_env_var = "HARNESS_HAT_TOKEN"
 
 # Executables that are always denied.
 # These are common shell escape or privilege escalation paths.
@@ -79,11 +79,11 @@ strict_network = true
 [logging]
 # Directory for runtime state and logs.
 # This file stores:
-# - `void-claw.log` (daily rotating text logs)
+# - `harness-hat.log` (daily rotating text logs)
 # - runtime state used by the manager and proxy
-log_dir = "~/.local/share/void-claw"
+log_dir = "~/.local/share/harness-hat"
 
-# Stable instance id written by void-claw on first startup.
+# Stable instance id written by harness-hat on first startup.
 # This is exported as `service.instance.id` in OpenTelemetry.
 # instance_id = "generated-on-first-run"
 
@@ -115,7 +115,7 @@ log_dir = "~/.local/share/void-claw"
 
 # ---------------------------------------------------------------------------
 # Named environment profiles.
-# These are referenced by hostdo command rules in void-rules.toml via
+# These are referenced by hostdo command rules in harness-rules.toml via
 # `env_profile`.
 # ---------------------------------------------------------------------------
 
@@ -128,7 +128,7 @@ vars = { NODE_ENV = "development" }
 
 # ---------------------------------------------------------------------------
 # Managed workspaces are optional.
-# Add one [[workspaces]] block per canonical repository when you want Void Claw
+# Add one [[workspaces]] block per canonical repository when you want Harness Hat
 # to manage a workspace. The CLI can still launch without any workspaces defined.
 # Workspace-specific hostdo overrides belong inside each [[workspaces]] block
 # when you add one later.
@@ -141,7 +141,7 @@ vars = { NODE_ENV = "development" }
 
 [defaults.containers]
 # Optional default mount point inside the container.
-# If omitted, void-claw uses /workspace.
+# If omitted, harness-hat uses /workspace.
 # mount_target = "/workspace"
 
 # Optional default agent type for profiles that do not set one.
@@ -180,7 +180,7 @@ image = "default"
 # Optional override for this profile's mount point.
 # mount_target = "/workspace"
 
-# Controls which agent bootstrap files void-claw writes into the workspace.
+# Controls which agent bootstrap files harness-hat writes into the workspace.
 # One of: none, claude, codex, opencode
 agent = "claude"
 

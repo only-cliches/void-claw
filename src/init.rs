@@ -5,13 +5,13 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use tracing::instrument;
 
-const SAMPLE_CONFIG: &str = include_str!("../void-claw.example.toml");
-const DOCKER_DIR_PLACEHOLDER: &str = "__VOID_CLAW_DOCKER_DIR__";
-const BASE_DOCKERFILE_TEMPLATE: &str = include_str!("../docker/void-claw-base.dockerfile");
+const SAMPLE_CONFIG: &str = include_str!("../harness-hat.example.toml");
+const DOCKER_DIR_PLACEHOLDER: &str = "__HARNESS_HAT_DOCKER_DIR__";
+const BASE_DOCKERFILE_TEMPLATE: &str = include_str!("../docker/harness-hat-base.dockerfile");
 const DEFAULT_DOCKERFILE_TEMPLATE: &str = include_str!("../docker/default.dockerfile");
 const GITHUB_DOCKER_BASE_URL: &str =
-    "https://raw.githubusercontent.com/only-cliches/void-claw/refs/heads/main/docker";
-const BUILTIN_DOCKERFILES: &[&str] = &["void-claw-base.dockerfile"];
+    "https://raw.githubusercontent.com/only-cliches/harness-hat/refs/heads/main/docker";
+const BUILTIN_DOCKERFILES: &[&str] = &["harness-hat-base.dockerfile"];
 
 const HOSTDO_SCRIPT: &str = include_str!("../docker/scripts/hostdo.py");
 const KILLME_SCRIPT: &str = include_str!("../docker/scripts/killme.py");
@@ -32,7 +32,7 @@ pub fn write_sample_config(output: &Path) -> Result<()> {
     let cwd = std::env::current_dir()?;
     let home_config_root = dirs::home_dir()
         .context("could not determine home directory")?
-        .join(".config/void-claw");
+        .join(".config/harness-hat");
     let docker_dir = resolve_init_docker_dir(&cwd, &home_config_root);
     fs::create_dir_all(&docker_dir)?;
     ensure_base_dockerfile(&docker_dir)?;
@@ -65,7 +65,7 @@ pub fn ensure_docker_assets(docker_dir: &Path) -> Result<()> {
     }
 
     println!(
-        "void-claw: the docker assets in {} are incomplete",
+        "harness-hat: the docker assets in {} are incomplete",
         docker_dir.display()
     );
     if !missing_dockerfiles.is_empty() {
@@ -106,7 +106,7 @@ pub fn ensure_default_dockerfile(docker_dir: &Path) -> Result<()> {
 
 #[instrument(skip(docker_dir))]
 pub fn ensure_base_dockerfile(docker_dir: &Path) -> Result<()> {
-    let path = docker_dir.join("void-claw-base.dockerfile");
+    let path = docker_dir.join("harness-hat-base.dockerfile");
     if path.exists() {
         return Ok(());
     }
@@ -205,9 +205,9 @@ mod tests {
 
     #[test]
     fn sample_config_writes_parseable_docker_dir() {
-        let root = std::env::temp_dir().join(format!("void-claw-init-{}", uuid::Uuid::new_v4()));
+        let root = std::env::temp_dir().join(format!("harness-hat-init-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&root).expect("create temp dir");
-        let output = root.join("void-claw.toml");
+        let output = root.join("harness-hat.toml");
         let cwd = std::env::current_dir().expect("current dir");
         let sample = write_sample_config(&output);
         sample.expect("write sample config");
@@ -220,9 +220,9 @@ mod tests {
     #[test]
     fn resolve_init_docker_dir_prefers_local_docker_folder() {
         let root =
-            std::env::temp_dir().join(format!("void-claw-init-local-{}", uuid::Uuid::new_v4()));
+            std::env::temp_dir().join(format!("harness-hat-init-local-{}", uuid::Uuid::new_v4()));
         let cwd = root.join("cwd");
-        let home = root.join("home/.config/void-claw");
+        let home = root.join("home/.config/harness-hat");
         std::fs::create_dir_all(cwd.join("docker")).expect("create local docker dir");
         let selected = resolve_init_docker_dir(&cwd, &home);
         assert_eq!(selected, cwd.join("docker"));
@@ -231,9 +231,9 @@ mod tests {
     #[test]
     fn resolve_init_docker_dir_falls_back_to_home_config_root() {
         let root =
-            std::env::temp_dir().join(format!("void-claw-init-home-{}", uuid::Uuid::new_v4()));
+            std::env::temp_dir().join(format!("harness-hat-init-home-{}", uuid::Uuid::new_v4()));
         let cwd = root.join("cwd");
-        let home = root.join("home/.config/void-claw");
+        let home = root.join("home/.config/harness-hat");
         std::fs::create_dir_all(&cwd).expect("create cwd");
         let selected = resolve_init_docker_dir(&cwd, &home);
         assert_eq!(selected, home.join("docker"));
@@ -242,12 +242,13 @@ mod tests {
     #[test]
     fn builtin_dockerfile_paths_include_expected_templates() {
         let paths = builtin_dockerfile_paths();
-        assert!(paths.contains(&"void-claw-base.dockerfile"));
+        assert!(paths.contains(&"harness-hat-base.dockerfile"));
     }
 
     #[test]
     fn ensure_docker_assets_is_a_noop_when_complete() {
-        let root = std::env::temp_dir().join(format!("void-claw-docker-{}", uuid::Uuid::new_v4()));
+        let root =
+            std::env::temp_dir().join(format!("harness-hat-docker-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(root.join("scripts")).expect("create scripts dir");
         for path in builtin_dockerfile_paths() {
             let file = root.join(path);
@@ -265,7 +266,7 @@ mod tests {
     #[test]
     fn ensure_default_dockerfile_creates_template_when_missing() {
         let root = std::env::temp_dir().join(format!(
-            "void-claw-default-dockerfile-{}",
+            "harness-hat-default-dockerfile-{}",
             uuid::Uuid::new_v4()
         ));
         std::fs::create_dir_all(&root).expect("create root");
@@ -276,23 +277,23 @@ mod tests {
         assert!(path.exists());
 
         let content = std::fs::read_to_string(path).expect("read default dockerfile");
-        assert!(content.contains("void-claw default image"));
+        assert!(content.contains("harness-hat default image"));
     }
 
     #[test]
     fn ensure_base_dockerfile_creates_template_when_missing() {
         let root = std::env::temp_dir().join(format!(
-            "void-claw-base-dockerfile-{}",
+            "harness-hat-base-dockerfile-{}",
             uuid::Uuid::new_v4()
         ));
         std::fs::create_dir_all(&root).expect("create root");
-        let path = root.join("void-claw-base.dockerfile");
+        let path = root.join("harness-hat-base.dockerfile");
         assert!(!path.exists());
 
         ensure_base_dockerfile(&root).expect("write base dockerfile");
         assert!(path.exists());
 
         let content = std::fs::read_to_string(path).expect("read base dockerfile");
-        assert!(content.contains("void-claw base"));
+        assert!(content.contains("harness-hat base"));
     }
 }

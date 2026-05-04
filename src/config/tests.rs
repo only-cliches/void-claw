@@ -15,7 +15,7 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .expect("system clock is before unix epoch")
             .as_nanos();
-        let dir = std::env::temp_dir().join(format!("void-claw-{prefix}-{nanos}"));
+        let dir = std::env::temp_dir().join(format!("harness-hat-{prefix}-{nanos}"));
         fs::create_dir_all(&dir).expect("create temp dir");
         dir
     }
@@ -59,7 +59,7 @@ canonical_path = "{}"
     #[test]
     fn load_applies_custom_sidebar_width() {
         let root = unique_temp_dir("sidebar-width-override");
-        let cfg_path = root.join("void-claw.toml");
+        let cfg_path = root.join("harness-hat.toml");
         let docker_dir = root.join("docker-root");
         fs::create_dir_all(&docker_dir).expect("create docker dir");
         let raw = format!(
@@ -85,7 +85,7 @@ sidebar_width = 28
     #[test]
     fn load_persists_logging_instance_id() {
         let root = unique_temp_dir("instance-id-persist");
-        let cfg_path = root.join("void-claw.toml");
+        let cfg_path = root.join("harness-hat.toml");
         let docker_dir = root.join("docker-root");
         fs::create_dir_all(&docker_dir).expect("create docker dir");
         let raw = format!(
@@ -178,7 +178,7 @@ allowlist = ["domain=api.openai.com"]
         .expect("write global rules");
 
         fs::write(
-            project_path.join("void-rules.toml"),
+            project_path.join("harness-rules.toml"),
             r#"
 [hostdo]
 default_policy = "prompt"
@@ -200,7 +200,7 @@ allowlist = ["domain=github.com"]
     #[test]
     fn load_fails_when_project_canonical_path_is_missing() {
         let root = unique_temp_dir("missing-canonical-path");
-        let cfg_path = root.join("void-claw.toml");
+        let cfg_path = root.join("harness-hat.toml");
         let docker_dir = root.join("docker-root");
         fs::create_dir_all(&docker_dir).expect("create docker dir");
         let raw = format!(
@@ -231,7 +231,7 @@ canonical_path = "{}"
     #[test]
     fn load_rejects_workspace_exclude_patterns_field() {
         let root = unique_temp_dir("reject-workspace-exclude-patterns");
-        let cfg_path = root.join("void-claw.toml");
+        let cfg_path = root.join("harness-hat.toml");
         let canonical_path = root.join("repo");
         let docker_dir = root.join("docker-root");
         fs::create_dir_all(&canonical_path).expect("create repo");
@@ -261,7 +261,7 @@ exclude_patterns = ["node_modules/**"]
     #[test]
     fn load_fails_when_docker_dir_is_missing() {
         let root = unique_temp_dir("missing-docker-dir");
-        let cfg_path = root.join("void-claw.toml");
+        let cfg_path = root.join("harness-hat.toml");
         let raw = format!(
             r#"
 [workspace]
@@ -286,7 +286,7 @@ global_rules_file = "{}"
     #[test]
     fn load_accepts_when_docker_dir_does_not_exist() {
         let root = unique_temp_dir("missing-docker-dir-path");
-        let cfg_path = root.join("void-claw.toml");
+        let cfg_path = root.join("harness-hat.toml");
         let docker_dir = root.join("docker-root");
         let raw = format!(
             r#"
@@ -308,7 +308,7 @@ global_rules_file = "{}"
     #[test]
     fn load_fails_when_docker_dir_is_a_file() {
         let root = unique_temp_dir("docker-dir-file");
-        let cfg_path = root.join("void-claw.toml");
+        let cfg_path = root.join("harness-hat.toml");
         let docker_dir = root.join("docker-root");
         fs::write(&docker_dir, "not a directory").expect("write docker file");
         let raw = format!(
@@ -335,7 +335,7 @@ global_rules_file = "{}"
     #[test]
     fn load_accepts_config_with_no_projects() {
         let root = unique_temp_dir("no-projects");
-        let cfg_path = root.join("void-claw.toml");
+        let cfg_path = root.join("harness-hat.toml");
         let docker_dir = root.join("docker-root");
         fs::create_dir_all(&docker_dir).expect("create docker dir");
         let raw = format!(
@@ -358,7 +358,7 @@ global_rules_file = "{}"
     #[test]
     fn load_accepts_workspaces_alias() {
         let root = unique_temp_dir("workspaces-alias");
-        let cfg_path = root.join("void-claw.toml");
+        let cfg_path = root.join("harness-hat.toml");
         let docker_dir = root.join("docker-root");
         let workspace_path = root.join("workspace-a");
         fs::create_dir_all(&docker_dir).expect("create docker dir");
@@ -389,7 +389,7 @@ canonical_path = "{}"
     #[test]
     fn effective_mode_is_always_direct() {
         let root = unique_temp_dir("direct-disposable");
-        let cfg_path = root.join("void-claw.toml");
+        let cfg_path = root.join("harness-hat.toml");
         let docker_dir = root.join("docker-root");
         let project_path = root.join("project-a");
         fs::create_dir_all(&docker_dir).expect("create docker dir");
@@ -422,7 +422,7 @@ mode = "direct"
     #[test]
     fn workspace_and_mount_paths_always_resolve_to_canonical() {
         let root = unique_temp_dir("direct-workspace-path");
-        let cfg_path = root.join("void-claw.toml");
+        let cfg_path = root.join("harness-hat.toml");
         let docker_dir = root.join("docker-root");
         let project_path = root.join("project-a");
         fs::create_dir_all(&docker_dir).expect("create docker dir");
@@ -611,7 +611,7 @@ mode = "direct"
     #[test]
     fn load_rejects_legacy_containers_section() {
         let root = unique_temp_dir("reject-legacy-containers");
-        let cfg_path = root.join("void-claw.toml");
+        let cfg_path = root.join("harness-hat.toml");
         let docker_dir = root.join("docker-root");
         fs::create_dir_all(&docker_dir).expect("create docker dir");
         let raw = format!(
@@ -642,7 +642,7 @@ profile = "codex"
     #[test]
     fn load_synthesizes_runtime_containers_from_profiles() {
         let root = unique_temp_dir("profiles-synthesize-containers");
-        let cfg_path = root.join("void-claw.toml");
+        let cfg_path = root.join("harness-hat.toml");
         let docker_dir = root.join("docker-root");
         fs::create_dir_all(&docker_dir).expect("create docker dir");
         let raw = format!(
@@ -666,16 +666,16 @@ agent = "codex"
         assert_eq!(cfg.containers.len(), 1);
         assert_eq!(cfg.containers[0].name, "codex");
         assert_eq!(cfg.containers[0].image_stem, "default");
-        assert_eq!(cfg.containers[0].image, "void-claw-default:local");
+        assert_eq!(cfg.containers[0].image, "harness-hat-default:local");
     }
 
     #[test]
     fn image_tag_for_stem_normalizes_non_alnum_chars() {
-        assert_eq!(image_tag_for_stem("default"), "void-claw-default:local");
+        assert_eq!(image_tag_for_stem("default"), "harness-hat-default:local");
         assert_eq!(
             image_tag_for_stem("Rust.Tools"),
-            "void-claw-rust.tools:local"
+            "harness-hat-rust.tools:local"
         );
-        assert_eq!(image_tag_for_stem("a b"), "void-claw-a-b:local");
+        assert_eq!(image_tag_for_stem("a b"), "harness-hat-a-b:local");
     }
 }

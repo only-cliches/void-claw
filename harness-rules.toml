@@ -1,5 +1,5 @@
-# void-rules.toml — policy for what the AI agent can do in this project.
-# Commit this file to your repository. void-claw reads it but never pushes
+# harness-rules.toml — policy for what the AI agent can do in this project.
+# Commit this file to your repository. harness-hat reads it but never pushes
 # changes back during workspace sync.
 #
 # Preferred place for *human/LLM instructions*:

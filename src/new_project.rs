@@ -43,12 +43,12 @@ impl ProjectType {
     }
 }
 
-/// Create `void-rules.toml` in a workspace directory if it does not exist.
+/// Create `harness-rules.toml` in a workspace directory if it does not exist.
 pub fn write_rules_if_missing(workspace_dir: &Path, project_type: ProjectType) -> Result<bool> {
     if matches!(project_type, ProjectType::None) {
         return Ok(false);
     }
-    let rules_path = workspace_dir.join("void-rules.toml");
+    let rules_path = workspace_dir.join("harness-rules.toml");
     if rules_path.exists() {
         return Ok(false);
     }
@@ -125,7 +125,7 @@ fn aliases<const N: usize>(
         .collect()
 }
 
-/// Append a workspace block to `void-claw.toml` using the built-in template.
+/// Append a workspace block to `harness-hat.toml` using the built-in template.
 pub fn append_project_block(
     config_path: &Path,
     project_name: &str,
@@ -171,7 +171,7 @@ mode = "{mode}"
     Ok(())
 }
 
-/// Remove a workspace block from `void-claw.toml` by name.
+/// Remove a workspace block from `harness-hat.toml` by name.
 ///
 /// Removes entries from both `[[workspaces]]` and legacy `[[projects]]` arrays.
 /// Returns true if at least one block was removed.
@@ -249,7 +249,7 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .expect("clock before epoch")
             .as_nanos();
-        let dir = std::env::temp_dir().join(format!("void-claw-new-project-{prefix}-{nanos}"));
+        let dir = std::env::temp_dir().join(format!("harness-hat-new-project-{prefix}-{nanos}"));
         fs::create_dir_all(&dir).expect("create temp dir");
         dir
     }
@@ -282,7 +282,7 @@ mod tests {
     fn rules_write_is_idempotent_when_file_exists() {
         let root = unique_temp_dir("rules-idempotent");
         fs::create_dir_all(root.join("canon")).expect("create canon");
-        let rules_path = root.join("canon").join("void-rules.toml");
+        let rules_path = root.join("canon").join("harness-rules.toml");
         fs::write(&rules_path, "sentinel").expect("write sentinel");
 
         let wrote = write_rules_if_missing(&root.join("canon"), ProjectType::Node).expect("write");
@@ -296,13 +296,13 @@ mod tests {
         fs::create_dir_all(root.join("canon")).expect("create canon");
         let wrote = write_rules_if_missing(&root.join("canon"), ProjectType::None).expect("write");
         assert!(!wrote);
-        assert!(!root.join("canon").join("void-rules.toml").exists());
+        assert!(!root.join("canon").join("harness-rules.toml").exists());
     }
 
     #[test]
     fn config_append_block_parses_and_sets_sync_mode() {
         let root = unique_temp_dir("append-config");
-        let config_path = root.join("void-claw.toml");
+        let config_path = root.join("harness-hat.toml");
         let canon = root.join("canon");
         let docker_dir = root.join("docker-root");
         fs::create_dir_all(&canon).expect("create canon");
@@ -338,7 +338,7 @@ global_rules_file = "{}"
     #[test]
     fn config_append_block_marks_direct_projects_non_disposable() {
         let root = unique_temp_dir("append-config-direct");
-        let config_path = root.join("void-claw.toml");
+        let config_path = root.join("harness-hat.toml");
         let canon = root.join("canon");
         let docker_dir = root.join("docker-root");
         fs::create_dir_all(&canon).expect("create canon");
@@ -374,7 +374,7 @@ global_rules_file = "{}"
     #[test]
     fn remove_workspace_block_removes_matching_workspaces() {
         let root = unique_temp_dir("config-remove-workspace");
-        let config_path = root.join("void-claw.toml");
+        let config_path = root.join("harness-hat.toml");
         fs::write(
             &config_path,
             r#"
@@ -400,7 +400,7 @@ canonical_path = "/tmp/b"
     #[test]
     fn remove_workspace_block_supports_legacy_projects_key() {
         let root = unique_temp_dir("config-remove-legacy-projects");
-        let config_path = root.join("void-claw.toml");
+        let config_path = root.join("harness-hat.toml");
         fs::write(
             &config_path,
             r#"

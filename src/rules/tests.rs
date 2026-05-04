@@ -49,9 +49,9 @@ allowlist = ["domain=github.com policy=allow"]
             .duration_since(UNIX_EPOCH)
             .expect("clock before epoch")
             .as_nanos();
-        let dir = std::env::temp_dir().join(format!("void-claw-rules-invalid-{nonce}"));
+        let dir = std::env::temp_dir().join(format!("harness-hat-rules-invalid-{nonce}"));
         std::fs::create_dir_all(&dir).expect("create temp dir");
-        let path = dir.join("void-rules.toml");
+        let path = dir.join("harness-rules.toml");
         std::fs::write(&path, raw).expect("write rules");
 
         let parsed = load(&path);
@@ -73,9 +73,9 @@ allowlist = ["domain=github.com"]
             .duration_since(UNIX_EPOCH)
             .expect("clock before epoch")
             .as_nanos();
-        let dir = std::env::temp_dir().join(format!("void-claw-rules-invalid-excludes-{nonce}"));
+        let dir = std::env::temp_dir().join(format!("harness-hat-rules-invalid-excludes-{nonce}"));
         std::fs::create_dir_all(&dir).expect("create temp dir");
-        let path = dir.join("void-rules.toml");
+        let path = dir.join("harness-rules.toml");
         std::fs::write(&path, raw).expect("write rules");
         let parsed = load(&path);
         assert!(parsed.is_err(), "exclude_patterns should be rejected");
@@ -125,9 +125,9 @@ allowlist = ["domain=github.com"]
             .duration_since(UNIX_EPOCH)
             .expect("clock before epoch")
             .as_nanos();
-        let dir = std::env::temp_dir().join(format!("void-claw-rules-test-{nonce}"));
+        let dir = std::env::temp_dir().join(format!("harness-hat-rules-test-{nonce}"));
         std::fs::create_dir_all(&dir).expect("create temp dir");
-        let path = dir.join("void-rules.toml");
+        let path = dir.join("harness-rules.toml");
         let argv = vec!["cargo".to_string(), "test".to_string()];
 
         append_auto_approval(&path, &argv, "$WORKSPACE").expect("first append");
@@ -147,14 +147,14 @@ allowlist = ["domain=github.com"]
             .duration_since(UNIX_EPOCH)
             .expect("clock before epoch")
             .as_nanos();
-        let dir = std::env::temp_dir().join(format!("void-claw-rules-header-{nonce}"));
+        let dir = std::env::temp_dir().join(format!("harness-hat-rules-header-{nonce}"));
         std::fs::create_dir_all(&dir).expect("create temp dir");
-        let path = dir.join("void-rules.toml");
+        let path = dir.join("harness-rules.toml");
 
         write_rules_file(&path, &ProjectRules::default(), false).expect("write");
         let s = std::fs::read_to_string(&path).expect("read");
         assert!(
-            s.starts_with("# void-rules.toml — policy"),
+            s.starts_with("# harness-rules.toml — policy"),
             "missing header prefix"
         );
         assert!(
@@ -172,15 +172,15 @@ allowlist = ["domain=github.com"]
             .duration_since(UNIX_EPOCH)
             .expect("clock before epoch")
             .as_nanos();
-        let dir = std::env::temp_dir().join(format!("void-claw-rules-header-append-{nonce}"));
+        let dir = std::env::temp_dir().join(format!("harness-hat-rules-header-append-{nonce}"));
         std::fs::create_dir_all(&dir).expect("create temp dir");
-        let path = dir.join("void-rules.toml");
+        let path = dir.join("harness-rules.toml");
 
         append_auto_approval(&path, &["echo".to_string(), "hi".to_string()], "/tmp")
             .expect("append");
         let s = std::fs::read_to_string(&path).expect("read");
         assert!(
-            s.starts_with("# void-rules.toml — policy"),
+            s.starts_with("# harness-rules.toml — policy"),
             "missing header after append"
         );
 

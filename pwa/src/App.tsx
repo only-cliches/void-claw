@@ -23,11 +23,10 @@ function App() {
           color="slate.12"
           lineHeight="short"
         >
-          Solid + Park UI + PandaCSS PWA
+          Harness Hat
         </Box>
         <Box color="slate.11">
-          This progressive web app is bootstrapped with TypeScript, SolidJS,
-          PandaCSS, and the Park UI preset.
+          Zero-trust container management for AI coding agent sessions.
         </Box>
         <Box
           as="code"

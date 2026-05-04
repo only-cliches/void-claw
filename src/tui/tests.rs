@@ -31,7 +31,7 @@ fn unique_temp_dir(prefix: &str) -> std::path::PathBuf {
         .duration_since(UNIX_EPOCH)
         .expect("system clock is before unix epoch")
         .as_nanos();
-    let dir = std::env::temp_dir().join(format!("void-claw-{prefix}-{nanos}"));
+    let dir = std::env::temp_dir().join(format!("harness-hat-{prefix}-{nanos}"));
     std::fs::create_dir_all(&dir).expect("create temp dir");
     dir
 }
@@ -105,7 +105,7 @@ fn build_test_app() -> App {
     std::fs::create_dir_all(&docker_dir).expect("create docker dir");
     std::fs::create_dir_all(&project_path).expect("create project path");
 
-    let cfg_path = root.join("void-claw.toml");
+    let cfg_path = root.join("harness-hat.toml");
     let raw = format!(
         r#"
 docker_dir = "{}"
@@ -162,18 +162,18 @@ fn key(code: KeyCode, modifiers: KeyModifiers) -> KeyEvent {
 
 #[test]
 fn build_commands_use_configured_docker_root() {
-    let docker_dir = std::path::Path::new("/tmp/void-claw-docker-root");
-    let (build_cmd, base_cmd) = App::build_commands_for(docker_dir, "void-claw-codex:local");
+    let docker_dir = std::path::Path::new("/tmp/harness-hat-docker-root");
+    let (build_cmd, base_cmd) = App::build_commands_for(docker_dir, "harness-hat-codex:local");
 
     assert_eq!(
         build_cmd,
         vec![
             "build".to_string(),
             "-t".to_string(),
-            "void-claw-codex:local".to_string(),
+            "harness-hat-codex:local".to_string(),
             "-f".to_string(),
-            "/tmp/void-claw-docker-root/codex.dockerfile".to_string(),
-            "/tmp/void-claw-docker-root".to_string(),
+            "/tmp/harness-hat-docker-root/codex.dockerfile".to_string(),
+            "/tmp/harness-hat-docker-root".to_string(),
         ]
     );
     assert_eq!(
@@ -181,28 +181,28 @@ fn build_commands_use_configured_docker_root() {
         Some(vec![
             "build".to_string(),
             "-t".to_string(),
-            "void-claw-base:local".to_string(),
+            "harness-hat-base:local".to_string(),
             "-f".to_string(),
-            "/tmp/void-claw-docker-root/void-claw-base.dockerfile".to_string(),
-            "/tmp/void-claw-docker-root".to_string(),
+            "/tmp/harness-hat-docker-root/harness-hat-base.dockerfile".to_string(),
+            "/tmp/harness-hat-docker-root".to_string(),
         ])
     );
 }
 
 #[test]
 fn build_commands_for_base_image_do_not_nest_base_build() {
-    let docker_dir = std::path::Path::new("/tmp/void-claw-docker-root");
-    let (build_cmd, base_cmd) = App::build_commands_for(docker_dir, "void-claw-base:local");
+    let docker_dir = std::path::Path::new("/tmp/harness-hat-docker-root");
+    let (build_cmd, base_cmd) = App::build_commands_for(docker_dir, "harness-hat-base:local");
 
     assert_eq!(
         build_cmd,
         vec![
             "build".to_string(),
             "-t".to_string(),
-            "void-claw-base:local".to_string(),
+            "harness-hat-base:local".to_string(),
             "-f".to_string(),
-            "/tmp/void-claw-docker-root/void-claw-base.dockerfile".to_string(),
-            "/tmp/void-claw-docker-root".to_string(),
+            "/tmp/harness-hat-docker-root/harness-hat-base.dockerfile".to_string(),
+            "/tmp/harness-hat-docker-root".to_string(),
         ]
     );
     assert_eq!(base_cmd, None);
@@ -412,7 +412,7 @@ fn workspace_rules_external_edit_triggers_security_modal() {
     let mut app = build_test_app();
     let rules_path = app.config.get().workspaces[0]
         .canonical_path
-        .join("void-rules.toml");
+        .join("harness-rules.toml");
 
     app.tick_base_rules_file_watch();
     std::fs::write(

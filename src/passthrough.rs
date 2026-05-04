@@ -10,7 +10,7 @@ use tokio::sync::mpsc;
 
 #[derive(Debug, Clone, Parser)]
 #[command(
-    name = "void-claw",
+    name = "harness-hat",
     version,
     about = "Containerized command passthrough for local workspaces"
 )]
@@ -45,7 +45,7 @@ pub async fn run_and_get_exit_code() -> Result<i32> {
     let parsed = parse_args()?;
 
     if which::which("docker").is_err() {
-        bail!("docker not found in PATH — void-claw requires Docker to run containers");
+        bail!("docker not found in PATH — harness-hat requires Docker to run containers");
     }
 
     let config_path =
@@ -62,7 +62,7 @@ pub async fn run_and_get_exit_code() -> Result<i32> {
     let cwd = std::env::current_dir().context("reading current directory")?;
     validate_rules(
         &config.manager.global_rules_file,
-        &cwd.join("void-rules.toml"),
+        &cwd.join("harness-rules.toml"),
     )?;
 
     let runtime = infer_passthrough_runtime(
@@ -361,8 +361,8 @@ fn ensure_image_built(image: &str, dockerfile_path: &Path, docker_dir: &Path) ->
         return Ok(());
     }
 
-    let base_image = "void-claw-base:local";
-    let base_dockerfile = docker_dir.join("void-claw-base.dockerfile");
+    let base_image = "harness-hat-base:local";
+    let base_dockerfile = docker_dir.join("harness-hat-base.dockerfile");
     if !docker_image_exists(base_image)? && !base_dockerfile.exists() {
         bail!(
             "Looked for {} and didn't find it, please run setup to restore the base dockerfile.",
@@ -432,7 +432,7 @@ fn parse_args() -> Result<ParsedArgs> {
 }
 
 fn parse_args_from(raw: Vec<OsString>) -> Result<ParsedArgs> {
-    const USAGE: &str = "Usage: void-claw [--image NAME] -- <command ...>";
+    const USAGE: &str = "Usage: harness-hat [--image NAME] -- <command ...>";
 
     let Some(bin_name) = raw.first().cloned() else {
         bail!("missing argv[0]. {USAGE}");
@@ -457,7 +457,7 @@ fn parse_args_from(raw: Vec<OsString>) -> Result<ParsedArgs> {
     }
 
     // Compatibility mode for invocations like:
-    //   cargo run --bin void-claw -- codex
+    //   cargo run --bin harness-hat -- codex
     // where Cargo consumes the first `--` and forwards only `codex`.
     let mut option_argv = vec![bin_name];
     let mut idx = 1usize;
@@ -579,7 +579,7 @@ mod tests {
     #[test]
     fn parse_args_accepts_explicit_separator() {
         let parsed = parse_args_from(os(&[
-            "void-claw",
+            "harness-hat",
             "--image",
             "default",
             "--",
@@ -597,22 +597,22 @@ mod tests {
 
     #[test]
     fn parse_args_accepts_no_separator_for_simple_command() {
-        let parsed = parse_args_from(os(&["void-claw", "codex"])).expect("parse args");
+        let parsed = parse_args_from(os(&["harness-hat", "codex"])).expect("parse args");
         assert_eq!(parsed.options.image, None);
         assert_eq!(parsed.command, vec!["codex"]);
     }
 
     #[test]
     fn parse_args_accepts_no_separator_with_options() {
-        let parsed =
-            parse_args_from(os(&["void-claw", "--image", "default", "codex"])).expect("parse args");
+        let parsed = parse_args_from(os(&["harness-hat", "--image", "default", "codex"]))
+            .expect("parse args");
         assert_eq!(parsed.options.image.as_deref(), Some("default"));
         assert_eq!(parsed.command, vec!["codex"]);
     }
 
     #[test]
     fn parse_args_requires_separator_for_hyphenated_command() {
-        let err = parse_args_from(os(&["void-claw", "--foo"]))
+        let err = parse_args_from(os(&["harness-hat", "--foo"]))
             .expect_err("hyphen-prefixed command should require separator");
         assert!(err.to_string().contains("use '--' before command"));
     }

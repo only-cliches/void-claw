@@ -847,6 +847,51 @@ dependencies = [
 ]
 
 [[package]]
+name = "harness-hat"
+version = "0.1.0"
+dependencies = [
+ "alacritty_terminal",
+ "anyhow",
+ "axum",
+ "base64",
+ "chrono",
+ "clap",
+ "crossterm",
+ "dirs",
+ "futures",
+ "globset",
+ "httparse",
+ "ignore",
+ "libc",
+ "opentelemetry",
+ "opentelemetry-otlp",
+ "opentelemetry_sdk",
+ "portable-pty",
+ "ratatui",
+ "rcgen",
+ "reqwest",
+ "rustls",
+ "rustls-pemfile",
+ "serde",
+ "serde_json",
+ "shell-words",
+ "tempfile",
+ "tokio",
+ "tokio-rustls",
+ "toml",
+ "toml_edit",
+ "tracing",
+ "tracing-appender",
+ "tracing-opentelemetry",
+ "tracing-subscriber",
+ "url",
+ "uuid",
+ "vt100",
+ "webpki-roots 0.26.11",
+ "which",
+]
+
+[[package]]
 name = "hashbrown"
 version = "0.12.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2967,51 +3012,6 @@ name = "vcpkg"
 version = "0.2.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "accd4ea62f7bb7a82fe23066fb0957d48ef677f6eeb8215f372f52e48bb32426"
-
-[[package]]
-name = "void-claw"
-version = "0.1.0"
-dependencies = [
- "alacritty_terminal",
- "anyhow",
- "axum",
- "base64",
- "chrono",
- "clap",
- "crossterm",
- "dirs",
- "futures",
- "globset",
- "httparse",
- "ignore",
- "libc",
- "opentelemetry",
- "opentelemetry-otlp",
- "opentelemetry_sdk",
- "portable-pty",
- "ratatui",
- "rcgen",
- "reqwest",
- "rustls",
- "rustls-pemfile",
- "serde",
- "serde_json",
- "shell-words",
- "tempfile",
- "tokio",
- "tokio-rustls",
- "toml",
- "toml_edit",
- "tracing",
- "tracing-appender",
- "tracing-opentelemetry",
- "tracing-subscriber",
- "url",
- "uuid",
- "vt100",
- "webpki-roots 0.26.11",
- "which",
-]
 
 [[package]]
 name = "vt100"
