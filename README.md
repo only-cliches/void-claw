@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🎩 Harness Hat 🛡️
+# Harness Hat
 
 **Network, Disk, and Host Isolation for AI Coding Agents**
 
