@@ -244,6 +244,9 @@ pub struct HostdoDefaults {
     pub server_host: String,
     #[serde(default = "default_token_env")]
     pub token_env_var: String,
+    /// Maximum command timeout an agent may request through hostdo.
+    #[serde(default = "default_max_timeout_secs")]
+    pub max_timeout_secs: u64,
     /// List of exact executable names that are always denied, regardless of other rules.
     #[serde(default = "default_denied_executables")]
     pub denied_executables: Vec<String>,
@@ -269,6 +272,10 @@ fn default_host() -> String {
 fn default_token_env() -> String {
     "HARNESS_HAT_TOKEN".to_string()
 }
+/// Provides the default value for `HostdoDefaults.max_timeout_secs`.
+fn default_max_timeout_secs() -> u64 {
+    60 * 60
+}
 /// Provides the default value for `HostdoDefaults.denied_executables`.
 fn default_denied_executables() -> Vec<String> {
     [
@@ -285,6 +292,7 @@ impl Default for HostdoDefaults {
             server_port: default_exec_port(),
             server_host: default_host(),
             token_env_var: default_token_env(),
+            max_timeout_secs: default_max_timeout_secs(),
             denied_executables: default_denied_executables(),
             denied_argument_fragments: vec![],
             command_aliases: HashMap::new(),

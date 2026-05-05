@@ -1,10 +1,10 @@
 use anyhow::Result;
 use axum::{
     Json, Router,
-    extract::State,
+    extract::{Path as AxumPath, State},
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
-    routing::post,
+    routing::{get, post},
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -14,6 +14,7 @@ use std::time::Duration;
 use tokio::sync::{mpsc, oneshot};
 use tracing::instrument;
 
+use crate::activity::ActivityEvent;
 use crate::config::AliasValue;
 use crate::shared_config::SharedConfig;
 use crate::state::{AuditEntry, StateManager};
@@ -22,9 +23,13 @@ use crate::state::{AuditEntry, StateManager};
 pub struct PendingItem {
     /// Unique identifier for this pending item, used for TUI interaction and tracking.
     pub id: String,
+    pub activity_id: String,
+    pub cancel_flag: std::sync::Arc<std::sync::atomic::AtomicBool>,
     pub project: String,
     pub container_id: Option<String>,
     pub argv: Vec<String>,
+    pub image: Option<String>,
+    pub timeout_secs: u64,
     /// Host-side cwd used to actually execute the command.
     pub cwd: PathBuf,
     /// Container/request cwd used for rule matching and persistence.
@@ -52,6 +57,10 @@ pub struct ExecRequest {
     pub project: Option<String>,
     pub argv: Vec<String>,
     pub cwd: String,
+    #[serde(default)]
+    pub image: Option<String>,
+    #[serde(default)]
+    pub timeout_secs: Option<u64>,
 }
 
 /// Response payload returned by the hostdo HTTP endpoint.
@@ -60,6 +69,62 @@ pub struct ExecResponse {
     pub exit_code: i32,
     pub stdout: String,
     pub stderr: String,
+}
+
+/// Long-running hostdo job state returned by `/exec` and `/exec/jobs/:id`.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ExecJobState {
+    Running,
+    Complete,
+    Failed,
+}
+
+/// More specific state for a running image-backed hostdo job.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ExecJobPhase {
+    CheckingImage,
+    PullingImage,
+    RunningCommand,
+}
+
+/// Best-effort progress detail for an image pull.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct ExecJobProgress {
+    pub kind: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
+}
+
+/// Status payload for a long-running hostdo job.
+#[derive(Debug, Clone, Serialize)]
+pub struct ExecJobStatus {
+    pub state: ExecJobState,
+    pub job_id: String,
+    #[serde(skip_serializing)]
+    pub project: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub phase: Option<ExecJobPhase>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub image: Option<String>,
+    pub message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub progress: Option<ExecJobProgress>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub poll_after_ms: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exit_code: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stdout: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stderr: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
 }
 
 /// Error payload returned by the hostdo HTTP endpoint.
@@ -143,6 +208,45 @@ pub struct ServerState {
     pub token: String,
     /// Registry of currently active container sessions.
     pub sessions: SessionRegistry,
+    /// Status registry for long-running image-backed hostdo jobs.
+    pub exec_jobs: ExecJobRegistry,
+    pub activity_tx: mpsc::UnboundedSender<ActivityEvent>,
+}
+
+/// In-memory status registry for long-running hostdo jobs.
+#[derive(Clone, Default)]
+pub struct ExecJobRegistry {
+    inner: Arc<Mutex<HashMap<String, ExecJobStatus>>>,
+}
+
+impl ExecJobRegistry {
+    pub fn insert(&self, mut status: ExecJobStatus) -> ExecJobStatus {
+        if status.job_id.is_empty() {
+            status.job_id = uuid::Uuid::new_v4().to_string();
+        }
+        if let Ok(mut map) = self.inner.lock() {
+            map.insert(status.job_id.clone(), status.clone());
+        }
+        status
+    }
+
+    pub fn get(&self, job_id: &str) -> Option<ExecJobStatus> {
+        self.inner
+            .lock()
+            .ok()
+            .and_then(|map| map.get(job_id).cloned())
+    }
+
+    pub fn update<F>(&self, job_id: &str, update: F)
+    where
+        F: FnOnce(&mut ExecJobStatus),
+    {
+        if let Ok(mut map) = self.inner.lock() {
+            if let Some(status) = map.get_mut(job_id) {
+                update(status);
+            }
+        }
+    }
 }
 
 /// A container stop request waiting to be handled by the TUI.
@@ -171,11 +275,36 @@ pub async fn run_with_listener(
     // The server state is wrapped in Arc so it can be shared immutably across multiple handler instances.
     let router = Router::new()
         .route("/exec", post(super::core::exec_handler))
+        .route("/exec/jobs/:job_id", get(exec_job_handler))
         .route("/container/stop", post(stop_handler))
         .with_state(Arc::new(server_state));
 
     axum::serve(listener, router).await?;
     Ok(())
+}
+
+/// Returns status for a long-running hostdo execution job.
+pub(super) async fn exec_job_handler(
+    State(state): State<Arc<ServerState>>,
+    headers: HeaderMap,
+    AxumPath(job_id): AxumPath<String>,
+) -> Response {
+    let identity = match require_session_identity(&state, &headers) {
+        Ok(id) => id,
+        Err(resp) => return resp,
+    };
+
+    match state.exec_jobs.get(&job_id) {
+        Some(status) if status.project == identity.project => Json(status).into_response(),
+        Some(_) | None => (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: "not_found".into(),
+                reason: "no exec job matched the request".into(),
+            }),
+        )
+            .into_response(),
+    }
 }
 
 /// Handles incoming requests to stop a container.
@@ -413,6 +542,8 @@ mod tests {
     use crate::shared_config::SharedConfig;
     use crate::state::StateManager;
     use axum::{
+        body::to_bytes,
+        extract::{Path as AxumPath, State},
         http::{HeaderMap, StatusCode},
         response::IntoResponse,
     };
@@ -564,6 +695,152 @@ mod tests {
         assert_eq!(out.argv, vec!["hostdo", "b"]);
     }
 
+    fn job_status(project: &str) -> super::ExecJobStatus {
+        super::ExecJobStatus {
+            state: super::ExecJobState::Running,
+            job_id: String::new(),
+            project: project.to_string(),
+            phase: Some(super::ExecJobPhase::PullingImage),
+            image: Some("rust".to_string()),
+            message: "pulling image".to_string(),
+            progress: Some(super::ExecJobProgress {
+                kind: "indeterminate".to_string(),
+                id: None,
+                status: None,
+                detail: None,
+            }),
+            poll_after_ms: Some(1000),
+            exit_code: None,
+            stdout: None,
+            stderr: None,
+            reason: None,
+        }
+    }
+
+    fn auth_headers(token: &str, session_token: &str) -> HeaderMap {
+        let mut headers = HeaderMap::new();
+        headers.insert("authorization", format!("Bearer {token}").parse().unwrap());
+        headers.insert(
+            "x-harness-hat-session-token",
+            session_token.parse().unwrap(),
+        );
+        headers
+    }
+
+    fn server_state(
+        sessions: SessionRegistry,
+        exec_jobs: super::ExecJobRegistry,
+    ) -> super::ServerState {
+        super::ServerState {
+            config: SharedConfig::new(Arc::new(crate::config::Config::default())),
+            state: StateManager::open(Path::new("/tmp")).unwrap(),
+            pending_tx: mpsc::channel(1).0,
+            stop_tx: mpsc::channel(1).0,
+            audit_tx: mpsc::channel(1).0,
+            token: "test_token".to_string(),
+            sessions,
+            exec_jobs,
+            activity_tx: mpsc::unbounded_channel().0,
+        }
+    }
+
+    #[test]
+    fn exec_job_registry_generates_ids_and_updates_status() {
+        let registry = super::ExecJobRegistry::default();
+        let inserted = registry.insert(job_status("project-a"));
+
+        assert!(!inserted.job_id.is_empty());
+        let fetched = registry.get(&inserted.job_id).unwrap();
+        assert_eq!(fetched.project, "project-a");
+        assert_eq!(fetched.phase, Some(super::ExecJobPhase::PullingImage));
+
+        registry.update(&inserted.job_id, |status| {
+            status.state = super::ExecJobState::Complete;
+            status.phase = None;
+            status.message = "done".to_string();
+            status.exit_code = Some(0);
+            status.stdout = Some("ok\n".to_string());
+            status.stderr = Some(String::new());
+        });
+
+        let updated = registry.get(&inserted.job_id).unwrap();
+        assert_eq!(updated.state, super::ExecJobState::Complete);
+        assert_eq!(updated.phase, None);
+        assert_eq!(updated.message, "done");
+        assert_eq!(updated.exit_code, Some(0));
+        assert_eq!(updated.stdout.as_deref(), Some("ok\n"));
+    }
+
+    #[tokio::test]
+    async fn exec_job_handler_returns_matching_project_status() {
+        let sessions = SessionRegistry::default();
+        sessions.insert(
+            "session-a".to_string(),
+            super::SessionIdentity {
+                project: "project-a".to_string(),
+                container_id: "container-a".to_string(),
+                mount_target: "/workspace".to_string(),
+            },
+        );
+        let registry = super::ExecJobRegistry::default();
+        let inserted = registry.insert(job_status("project-a"));
+        let state = server_state(sessions, registry);
+        let response = super::exec_job_handler(
+            State(Arc::new(state)),
+            auth_headers("test_token", "session-a"),
+            AxumPath(inserted.job_id.clone()),
+        )
+        .await;
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(body["state"], "running");
+        assert_eq!(body["job_id"], inserted.job_id);
+        assert_eq!(body["phase"], "pulling_image");
+        assert_eq!(body["image"], "rust");
+        assert!(body.get("project").is_none());
+    }
+
+    #[tokio::test]
+    async fn exec_job_handler_hides_other_project_jobs() {
+        let sessions = SessionRegistry::default();
+        sessions.insert(
+            "session-a".to_string(),
+            super::SessionIdentity {
+                project: "project-a".to_string(),
+                container_id: "container-a".to_string(),
+                mount_target: "/workspace".to_string(),
+            },
+        );
+        let registry = super::ExecJobRegistry::default();
+        let inserted = registry.insert(job_status("project-b"));
+        let state = server_state(sessions, registry);
+        let response = super::exec_job_handler(
+            State(Arc::new(state)),
+            auth_headers("test_token", "session-a"),
+            AxumPath(inserted.job_id),
+        )
+        .await;
+
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn exec_job_handler_requires_valid_session() {
+        let registry = super::ExecJobRegistry::default();
+        let inserted = registry.insert(job_status("project-a"));
+        let state = server_state(SessionRegistry::default(), registry);
+        let response = super::exec_job_handler(
+            State(Arc::new(state)),
+            auth_headers("test_token", "missing-session"),
+            AxumPath(inserted.job_id),
+        )
+        .await;
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
     #[tokio::test]
     async fn require_session_identity_missing_auth_header() {
         let state = super::ServerState {
@@ -574,6 +851,8 @@ mod tests {
             audit_tx: mpsc::channel(1).0,
             token: "test_token".to_string(),
             sessions: SessionRegistry::default(),
+            exec_jobs: super::ExecJobRegistry::default(),
+            activity_tx: mpsc::unbounded_channel().0,
         };
         let headers = HeaderMap::new();
 
@@ -593,6 +872,8 @@ mod tests {
             audit_tx: mpsc::channel(1).0,
             token: "valid_token".to_string(),
             sessions: SessionRegistry::default(),
+            exec_jobs: super::ExecJobRegistry::default(),
+            activity_tx: mpsc::unbounded_channel().0,
         };
         let mut headers = HeaderMap::new();
         headers.insert("authorization", "Bearer invalid_token".parse().unwrap());
@@ -617,6 +898,8 @@ mod tests {
             audit_tx: mpsc::channel(1).0,
             token: "test_token".to_string(),
             sessions: SessionRegistry::default(),
+            exec_jobs: super::ExecJobRegistry::default(),
+            activity_tx: mpsc::unbounded_channel().0,
         };
         let mut headers = HeaderMap::new();
         headers.insert("authorization", "Bearer test_token".parse().unwrap());
@@ -637,6 +920,8 @@ mod tests {
             audit_tx: mpsc::channel(1).0,
             token: "test_token".to_string(),
             sessions: SessionRegistry::default(),
+            exec_jobs: super::ExecJobRegistry::default(),
+            activity_tx: mpsc::unbounded_channel().0,
         };
         let mut headers = HeaderMap::new();
         headers.insert("authorization", "Bearer test_token".parse().unwrap());
@@ -670,6 +955,8 @@ mod tests {
             audit_tx: mpsc::channel(1).0,
             token: "test_token".to_string(),
             sessions,
+            exec_jobs: super::ExecJobRegistry::default(),
+            activity_tx: mpsc::unbounded_channel().0,
         };
         let mut headers = HeaderMap::new();
         headers.insert("authorization", "Bearer test_token".parse().unwrap());

@@ -249,6 +249,11 @@ pub fn image_tag_for_stem(stem: &str) -> String {
 }
 
 fn validate(config: &Config) -> Result<()> {
+    anyhow::ensure!(
+        config.defaults.hostdo.max_timeout_secs > 0,
+        "defaults.hostdo.max_timeout_secs must be greater than zero"
+    );
+
     for (alias, target) in &config.defaults.hostdo.command_aliases {
         anyhow::ensure!(
             !alias.trim().is_empty(),

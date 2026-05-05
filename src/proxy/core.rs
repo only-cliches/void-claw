@@ -17,15 +17,18 @@ use tokio::sync::{mpsc, oneshot};
 use tokio_rustls::TlsAcceptor;
 use tracing::{debug, error, info, warn};
 
+use crate::activity::{
+    Activity, ActivityEvent, ActivityKind, ActivityState, payload_preview, wait_cancelled,
+};
 use crate::ca::CaStore;
 use crate::config;
 use crate::proxy::connect::{handle_connect, parse_sni_from_tls_client_hello};
 use crate::proxy::helpers::{
-    container_tls_passthrough_matches, is_expected_disconnect, write_error_any, write_response_any,
+    container_tls_passthrough_matches, is_expected_disconnect, write_error_any,
 };
 use crate::proxy::http::{
-    forward_request, handle_plain_http, parse_request_line_and_headers, prompt_network,
-    read_body_any, read_request_head_any,
+    forward_request_with_activity, handle_plain_http, parse_request_line_and_headers,
+    prompt_network, read_body_any, read_request_head_any,
 };
 use crate::rules::NetworkPolicy;
 use crate::shared_config::SharedConfig;
@@ -33,6 +36,8 @@ use tracing::instrument;
 
 /// A network request waiting on the TUI for an allow/deny decision.
 pub struct PendingNetworkItem {
+    pub activity_id: String,
+    pub cancel_flag: Arc<std::sync::atomic::AtomicBool>,
     pub source_project: Option<String>,
     pub source_container: Option<String>,
     pub source_status: String,
@@ -99,6 +104,7 @@ pub struct ProxyState {
     pub ca: Arc<CaStore>,
     pub config: SharedConfig,
     pub pending_tx: mpsc::Sender<PendingNetworkItem>,
+    pub activity_tx: mpsc::UnboundedSender<ActivityEvent>,
     pub(crate) client: reqwest::Client,
     pub(crate) fixed_source: Option<FixedSourceIdentity>,
 }
@@ -108,6 +114,7 @@ impl ProxyState {
         ca: Arc<CaStore>,
         config: SharedConfig,
         pending_tx: mpsc::Sender<PendingNetworkItem>,
+        activity_tx: mpsc::UnboundedSender<ActivityEvent>,
     ) -> Result<Self> {
         let client = reqwest::Client::builder()
             .no_proxy()
@@ -118,6 +125,7 @@ impl ProxyState {
             ca,
             config,
             pending_tx,
+            activity_tx,
             client,
             fixed_source: None,
         })
@@ -130,6 +138,85 @@ impl ProxyState {
             container: container.to_string(),
         });
         cloned
+    }
+}
+
+impl ProxyState {
+    pub(crate) fn start_network_activity(
+        &self,
+        source_project: Option<String>,
+        source_container: Option<String>,
+        method: &str,
+        host: &str,
+        path: &str,
+        protocol: &str,
+        headers: &[(String, String)],
+        body: &[u8],
+        state: ActivityState,
+    ) -> Activity {
+        let cancel_flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let (payload_preview, payload_truncated) = payload_preview(body);
+        let content_type = headers
+            .iter()
+            .find(|(name, _)| name.eq_ignore_ascii_case("content-type"))
+            .map(|(_, value)| value.clone());
+        let content_length = headers
+            .iter()
+            .find(|(name, _)| name.eq_ignore_ascii_case("content-length"))
+            .and_then(|(_, value)| value.trim().parse::<usize>().ok());
+        let activity = Activity::new(
+            source_project.unwrap_or_else(|| "unknown-workspace".to_string()),
+            source_container,
+            ActivityKind::Network {
+                method: method.to_string(),
+                host: host.to_string(),
+                path: path.to_string(),
+                protocol: protocol.to_string(),
+                payload_preview,
+                payload_truncated,
+                content_type,
+                content_length,
+            },
+            state,
+            cancel_flag,
+        );
+        let _ = self
+            .activity_tx
+            .send(ActivityEvent::Started(activity.clone()));
+        activity
+    }
+
+    pub(crate) fn activity_state(
+        &self,
+        id: &str,
+        state: ActivityState,
+        status: impl Into<Option<String>>,
+    ) {
+        let _ = self.activity_tx.send(ActivityEvent::State {
+            id: id.to_string(),
+            state,
+            status: status.into(),
+        });
+    }
+
+    pub(crate) fn activity_line(&self, id: &str, line: impl Into<String>) {
+        let _ = self.activity_tx.send(ActivityEvent::Line {
+            id: id.to_string(),
+            line: line.into(),
+        });
+    }
+
+    pub(crate) fn activity_finished(
+        &self,
+        id: &str,
+        state: ActivityState,
+        status: impl Into<Option<String>>,
+    ) {
+        let _ = self.activity_tx.send(ActivityEvent::Finished {
+            id: id.to_string(),
+            state,
+            status: status.into(),
+        });
     }
 }
 
@@ -301,6 +388,19 @@ async fn handle_transparent_tls(mut stream: TcpStream, state: ProxyState) -> Res
         return Ok(());
     };
 
+    let connect_activity = state.start_network_activity(
+        source_project.clone(),
+        source_container.clone(),
+        "CONNECT",
+        &host,
+        "/",
+        "transparent-tls",
+        &[],
+        &[],
+        ActivityState::Forwarding,
+    );
+    state.activity_line(&connect_activity.id, format!("target {host}:443"));
+
     if container_tls_passthrough_matches(&cfg, source_container.as_deref(), &host) {
         info!(
             host = %host,
@@ -315,7 +415,40 @@ async fn handle_transparent_tls(mut stream: TcpStream, state: ProxyState) -> Res
                 anyhow::anyhow!("transparent passthrough connect to {host}:443 failed: {e}")
             })?;
         upstream.write_all(&prefix).await?;
-        let _ = copy_bidirectional(&mut stream, &mut upstream).await;
+        state.activity_state(
+            &connect_activity.id,
+            ActivityState::Forwarding,
+            Some(format!("tunneling {host}:443")),
+        );
+        tokio::select! {
+            result = copy_bidirectional(&mut stream, &mut upstream) => match result {
+                Ok((from_client, from_server)) => {
+                    state.activity_line(
+                        &connect_activity.id,
+                        format!("tunnel closed after {from_client} bytes upstream, {from_server} bytes downstream"),
+                    );
+                    state.activity_finished(
+                        &connect_activity.id,
+                        ActivityState::Complete,
+                        Some("tunnel closed".to_string()),
+                    );
+                }
+                Err(e) => {
+                    state.activity_finished(
+                        &connect_activity.id,
+                        ActivityState::Failed,
+                        Some(e.to_string()),
+                    );
+                }
+            },
+            _ = wait_cancelled(connect_activity.cancel_flag.clone()) => {
+                state.activity_finished(
+                    &connect_activity.id,
+                    ActivityState::Cancelled,
+                    Some("cancelled".to_string()),
+                );
+            }
+        }
         return Ok(());
     }
 
@@ -323,6 +456,11 @@ async fn handle_transparent_tls(mut stream: TcpStream, state: ProxyState) -> Res
         Ok(rules) => rules,
         Err(e) => {
             warn!("proxy rules load error: {e}");
+            state.activity_finished(
+                &connect_activity.id,
+                ActivityState::Failed,
+                Some("invalid harness-rules.toml configuration".to_string()),
+            );
             return Ok(());
         }
     };
@@ -331,6 +469,11 @@ async fn handle_transparent_tls(mut stream: TcpStream, state: ProxyState) -> Res
         NetworkPolicy::Auto => true,
         NetworkPolicy::Deny => false,
         NetworkPolicy::Prompt => {
+            state.activity_state(
+                &connect_activity.id,
+                ActivityState::PendingApproval,
+                Some("waiting for CONNECT approval".to_string()),
+            );
             prompt_network(
                 &state,
                 "CONNECT",
@@ -340,11 +483,22 @@ async fn handle_transparent_tls(mut stream: TcpStream, state: ProxyState) -> Res
                 source_container.clone(),
                 source_status.as_str(),
                 has_proxy_authorization,
+                Some(&connect_activity),
             )
             .await
         }
     };
     if !preflight_allowed {
+        let state_label = if connect_activity.is_cancelled() {
+            ActivityState::Cancelled
+        } else {
+            ActivityState::Denied
+        };
+        state.activity_finished(
+            &connect_activity.id,
+            state_label,
+            Some("blocked by network policy".to_string()),
+        );
         return Ok(());
     }
 
@@ -355,12 +509,21 @@ async fn handle_transparent_tls(mut stream: TcpStream, state: ProxyState) -> Res
 
     let server_config = state.ca.leaf_server_config(&host)?;
     let acceptor = TlsAcceptor::from(server_config);
-    let mut tls_stream = acceptor
-        .accept(prefixed)
-        .await
-        .map_err(|e| anyhow::anyhow!("TLS accept for {host}: {e}"))?;
+    let mut tls_stream = acceptor.accept(prefixed).await.map_err(|e| {
+        state.activity_finished(
+            &connect_activity.id,
+            ActivityState::Failed,
+            Some(format!("TLS accept for {host}: {e}")),
+        );
+        anyhow::anyhow!("TLS accept for {host}: {e}")
+    })?;
 
     debug!("proxy TLS established for host={host} (transparent)");
+    state.activity_finished(
+        &connect_activity.id,
+        ActivityState::Complete,
+        Some("TLS tunnel established".to_string()),
+    );
 
     let (inner_head, inner_remainder) = read_request_head_any(&mut tls_stream).await?;
     let inner_str = match std::str::from_utf8(&inner_head) {
@@ -378,6 +541,18 @@ async fn handle_transparent_tls(mut stream: TcpStream, state: ProxyState) -> Res
         }
     };
     let body = read_body_any(&mut tls_stream, &headers, inner_remainder).await?;
+    let activity = state.start_network_activity(
+        source_project.clone(),
+        source_container.clone(),
+        &method,
+        &host,
+        &path,
+        "https",
+        &headers,
+        &body,
+        ActivityState::Forwarding,
+    );
+    state.activity_line(&activity.id, "request body read");
 
     if source_project.is_none() {
         warn!(
@@ -396,6 +571,11 @@ async fn handle_transparent_tls(mut stream: TcpStream, state: ProxyState) -> Res
         NetworkPolicy::Auto => true,
         NetworkPolicy::Deny => false,
         NetworkPolicy::Prompt => {
+            state.activity_state(
+                &activity.id,
+                ActivityState::PendingApproval,
+                Some("waiting for network approval".to_string()),
+            );
             prompt_network(
                 &state,
                 &method,
@@ -405,17 +585,37 @@ async fn handle_transparent_tls(mut stream: TcpStream, state: ProxyState) -> Res
                 source_container.clone(),
                 source_status.as_str(),
                 has_proxy_authorization,
+                Some(&activity),
             )
             .await
         }
     };
     if !allowed {
+        let state_label = if activity.is_cancelled() {
+            ActivityState::Cancelled
+        } else {
+            ActivityState::Denied
+        };
+        state.activity_finished(
+            &activity.id,
+            state_label,
+            Some("blocked by network policy".to_string()),
+        );
         write_error_any(&mut tls_stream, 403, "Forbidden by harness-hat policy").await?;
         return Ok(());
     }
-    let url = format!("https://{host}{path}");
-    let response = forward_request(&state.client, &method, &url, &headers, body).await?;
-    write_response_any(&mut tls_stream, response).await
+    forward_request_with_activity(
+        &state,
+        &mut tls_stream,
+        &activity,
+        "https",
+        &host,
+        &path,
+        &method,
+        &headers,
+        body,
+    )
+    .await
 }
 
 async fn read_tls_client_hello_prefix(stream: &mut TcpStream) -> Result<Vec<u8>> {

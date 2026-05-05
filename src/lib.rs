@@ -12,6 +12,7 @@
     clippy::while_let_loop
 )]
 
+pub mod activity;
 pub mod agents;
 pub mod ca;
 pub mod cli;

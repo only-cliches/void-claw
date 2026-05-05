@@ -2,6 +2,9 @@
 # Commit this file to your repository. harness-hat reads it but never pushes
 # changes back during workspace sync.
 #
+# Agents/LLMs are not permitted to edit this file directly. Harness Hat monitors
+# this policy file and will notify the user if an agent attempts to modify it.
+#
 # Preferred place for *human/LLM instructions*:
 # llm_instructions = """
 # """
@@ -17,6 +20,15 @@
 #   [[hostdo.commands]]
 #   argv = ["cargo", "test"] # run inside container with `hostdo cargo test`
 #   cwd = "$WORKSPACE"         # execution cwd only, not part of approval matching
+#   timeout_secs = 60
+#   approval_mode = "auto"
+#
+# Short-lived Docker runner (exact argv + image match, auto-approved):
+#   [[hostdo.commands]]
+#   argv = ["npm", "test"]     # run with `hostdo --image node:20 npm test`
+#   image = "node:20"
+#   cwd = "$WORKSPACE"
+#   timeout_secs = 60
 #   approval_mode = "auto"
 #
 # Command alias (agent sends `hostdo tests`, expands server-side):
@@ -28,9 +40,13 @@
 
 # ── Network (HTTP/HTTPS proxy policy) ────────────────────────────────────────
 #
-# Coder-style allowlist rules. If no rule matches, request is prompted.
+# Coder-style network rules. Deny matches win over allow matches; if no rule
+# matches, request is prompted.
 # Rule format:
 #   method=GET,POST domain=api.example.com path=/v1/*,/health
+#
+# Use [network].allowlist for permanent allows and [network].denylist for
+# permanent denies.
 #
 # Domain matching:
 # - `domain=example.com` exact only
@@ -85,9 +101,72 @@ timeout_secs = 60
 concurrency = "queue"
 approval_mode = "auto"
 
-[hostdo.command_aliases.build]
-cmd = "cargo build"
+[[hostdo.commands]]
+argv = [
+    "cargo",
+    "fmt",
+    "--check",
+]
 cwd = "$WORKSPACE"
+timeout_secs = 60
+concurrency = "queue"
+approval_mode = "auto"
+
+[[hostdo.commands]]
+argv = [
+    "cargo",
+    "test",
+    "workspace_rules",
+]
+cwd = "$WORKSPACE"
+timeout_secs = 60
+concurrency = "queue"
+approval_mode = "auto"
+
+[[hostdo.commands]]
+argv = [
+    "cargo",
+    "test",
+]
+image = "rust"
+cwd = "$WORKSPACE"
+timeout_secs = 120
+concurrency = "queue"
+approval_mode = "auto"
+
+[[hostdo.commands]]
+argv = [
+    "cargo",
+    "fmt",
+]
+cwd = "$WORKSPACE"
+timeout_secs = 60
+concurrency = "queue"
+approval_mode = "auto"
+
+[[hostdo.commands]]
+argv = [
+    "rg",
+    "-n",
+    "struct Processor",
+    "/Users/scottlott/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/alacritty_terminal-0.26.0/src",
+]
+cwd = "$WORKSPACE"
+timeout_secs = 60
+concurrency = "queue"
+approval_mode = "auto"
+
+[[hostdo.commands]]
+argv = [
+    "rg",
+    "-n",
+    "Processor::new",
+    "/Users/scottlott/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/alacritty_terminal-0.26.0/src",
+]
+cwd = "$WORKSPACE"
+timeout_secs = 60
+concurrency = "queue"
+approval_mode = "deny"
 
 [hostdo.command_aliases.check]
 cmd = "cargo check"
@@ -97,12 +176,16 @@ cwd = "$WORKSPACE"
 cmd = "cargo fmt"
 cwd = "$WORKSPACE"
 
-[hostdo.command_aliases.lint]
-cmd = "cargo clippy"
+[hostdo.command_aliases.build]
+cmd = "cargo build"
 cwd = "$WORKSPACE"
 
 [hostdo.command_aliases.test]
 cmd = "cargo test"
+cwd = "$WORKSPACE"
+
+[hostdo.command_aliases.lint]
+cmd = "cargo clippy"
 cwd = "$WORKSPACE"
 
 [network]
@@ -110,4 +193,8 @@ allowlist = [
     "domain=raw.githubusercontent.com",
     "domain=github.com",
     "domain=registry.npmjs.org",
+    "domain=api.github.com",
+]
+denylist = [
+    "domain=*.example.com",
 ]

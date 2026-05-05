@@ -86,6 +86,7 @@ impl App {
         let exec_port = cfg.defaults.hostdo.server_port;
         let exec_host = &cfg.defaults.hostdo.server_host;
         let exec_url = format!("http://{exec_host}:{exec_port}");
+        let hostdo_script_host_path = cfg.docker_dir.join("scripts/hostdo.py");
         let proxy_host = &cfg.defaults.proxy.proxy_host;
         let scoped_proxy = match crate::proxy::spawn_scoped_listener(
             &self.proxy_state,
@@ -120,14 +121,21 @@ impl App {
             &proxy_url,
             extra_instructions,
         ) {
-            Ok(true) => self.push_log(
-                format!(
-                    "created starter harness-rules.toml in '{}'",
-                    proj.canonical_path.display()
-                ),
-                false,
-            ),
-            Ok(false) => {}
+            Ok(result) => {
+                if let Some(created) = result.created_rules {
+                    self.record_completed_rules_internal_write(
+                        created.path.clone(),
+                        created.content,
+                    );
+                    self.push_log(
+                        format!(
+                            "created starter harness-rules.toml in '{}'",
+                            proj.canonical_path.display()
+                        ),
+                        false,
+                    );
+                }
+            }
             Err(e) => self.push_log(format!("agent config injection warning: {e}"), true),
         }
 
@@ -221,6 +229,7 @@ impl App {
             &exec_url,
             &proxy_url,
             &self.ca_cert_path,
+            Some(hostdo_script_host_path.as_path()),
             Some(scoped_proxy),
             cfg.defaults.proxy.strict_network,
             pty_rows,

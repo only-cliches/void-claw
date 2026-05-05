@@ -56,6 +56,7 @@ fn resolve_init_docker_dir(cwd: &Path, home_config_root: &Path) -> PathBuf {
 pub fn ensure_docker_assets(docker_dir: &Path) -> Result<()> {
     ensure_base_dockerfile(docker_dir)?;
     ensure_default_dockerfile(docker_dir)?;
+    ensure_helper_scripts(docker_dir)?;
 
     let missing_dockerfiles = missing_builtin_dockerfiles(docker_dir);
     let missing_helper_scripts = missing_helper_scripts(docker_dir);
@@ -261,6 +262,32 @@ mod tests {
         std::fs::write(root.join("scripts/killme.py"), "killme").expect("write killme");
 
         ensure_docker_assets(&root).expect("ensure assets");
+    }
+
+    #[test]
+    fn ensure_docker_assets_refreshes_helper_scripts() {
+        let root = std::env::temp_dir().join(format!(
+            "harness-hat-docker-refresh-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(root.join("scripts")).expect("create scripts dir");
+        for path in builtin_dockerfile_paths() {
+            let file = root.join(path);
+            if let Some(parent) = file.parent() {
+                std::fs::create_dir_all(parent).expect("create dockerfile dir");
+            }
+            std::fs::write(&file, "FROM scratch").expect("write template");
+        }
+        std::fs::write(root.join("scripts/hostdo.py"), "old hostdo").expect("write old hostdo");
+        std::fs::write(root.join("scripts/killme.py"), "old killme").expect("write old killme");
+
+        ensure_docker_assets(&root).expect("ensure assets");
+
+        let hostdo = std::fs::read_to_string(root.join("scripts/hostdo.py")).expect("read hostdo");
+        let killme = std::fs::read_to_string(root.join("scripts/killme.py")).expect("read killme");
+        assert!(hostdo.contains("X-Hostdo-Protocol"));
+        assert!(killme.contains("killme"));
+        assert_ne!(killme, "old killme");
     }
 
     #[test]

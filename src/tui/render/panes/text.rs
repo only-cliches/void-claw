@@ -74,7 +74,15 @@ pub(crate) fn render_log(frame: &mut Frame, app: &mut App, area: Rect) {
 // ── Status bar ────────────────────────────────────────────────────────────────
 
 pub(crate) fn render_status_bar(frame: &mut Frame, app: &mut App, area: Rect) {
-    let keys = match app.focus {
+    let keys = status_bar_keys(app);
+    frame.render_widget(
+        Paragraph::new(Span::styled(keys, Style::default().fg(Color::DarkGray))),
+        area,
+    );
+}
+
+pub(crate) fn status_bar_keys(app: &App) -> &'static str {
+    match app.focus {
         Focus::Sidebar => {
             if app.build_is_running() {
                 " [↑↓/jk]navigate  [↵/l]select  [^C]cancel build  [o]log  [^Q]quit"
@@ -85,22 +93,21 @@ pub(crate) fn render_status_bar(frame: &mut Frame, app: &mut App, area: Rect) {
         Focus::Terminal if app.scroll_mode => {
             " SCROLL: [↑↓/jk]line  [PgUp/PgDn]page  [g/G]top/bottom  [Esc/q]exit scroll"
         }
-        Focus::Terminal => {
-            " [^S]scroll  [^B]sidebar  [Alt+o]log  [^Q]quit  (keys forwarded to container)"
-        }
+        Focus::Terminal => " [^C]interrupt  [Esc/^B]sidebar  [^S]scroll  [Alt+o]log  [^Q]quit",
+        Focus::Activity => " [^C]cancel request  [Esc/^B]sidebar  [^Q]quit",
         Focus::Settings => " [↑↓/jk]navigate  [↵/l]select  [^B]back  [^Q]quit",
         Focus::ContainerPicker => " [↑↓/jk]navigate  [↵/l]launch  [^B]back  [^Q]quit",
         Focus::ImageBuild => {
-            " [r]run+launch  [c]cancel  [↑↓/jk]navigate  [↵/l]select  [^B]sidebar  [^Q]quit"
+            if app.build_is_running() {
+                " [^C]cancel build  [Esc/^B]sidebar  [↑↓/jk]scroll  [^Q]quit"
+            } else {
+                " [↑↓/jk]navigate  [↵/l]select  [Esc/^B]back  [^Q]quit"
+            }
         }
         Focus::NewWorkspace => {
             " [↑↓/jk]navigate  [type]edit  [←→]cycle  [↵/l]select  [Esc/^B]back  [^Q]quit"
         }
-    };
-    frame.render_widget(
-        Paragraph::new(Span::styled(keys, Style::default().fg(Color::DarkGray))),
-        area,
-    );
+    }
 }
 
 // ── New workspace pane ───────────────────────────────────────────────────────

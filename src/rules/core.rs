@@ -10,6 +10,8 @@ use std::path::Path;
 
 use crate::config::AliasValue;
 
+pub const DEFAULT_TIMEOUT_SECS: u64 = 60;
+
 // ── Enums (re-used across config and rules) ──────────────────────────────────
 
 #[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
@@ -88,6 +90,12 @@ pub struct RuleCommand {
     pub name: Option<String>,
     /// Exact argv that must match the request.
     pub argv: Vec<String>,
+    /// Optional Docker image for short-lived container execution.
+    ///
+    /// `None` means the command runs directly on the host. `Some(image)` means
+    /// the command only matches requests made as `hostdo --image <image> ...`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image: Option<String>,
     /// Absolute path on the host. Use the canonical project path.
     pub cwd: String,
     pub env_profile: Option<String>,
@@ -106,7 +114,7 @@ impl RuleCommand {
 }
 
 fn default_timeout() -> u64 {
-    60
+    DEFAULT_TIMEOUT_SECS
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -114,15 +122,20 @@ fn default_timeout() -> u64 {
 pub struct NetworkRules {
     #[serde(default)]
     pub allowlist: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub denylist: Vec<String>,
 }
 
 impl Default for NetworkRules {
     fn default() -> Self {
-        Self { allowlist: vec![] }
+        Self {
+            allowlist: vec![],
+            denylist: vec![],
+        }
     }
 }
 
-/// One parsed allowlist rule in Coder Agent Firewall style:
+/// One parsed network rule in Coder Agent Firewall style:
 /// `method=GET,POST domain=api.example.com path=/api/*,/auth/*`.
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct NetworkRule {
@@ -139,6 +152,7 @@ pub struct NetworkRule {
 pub struct ComposedRules {
     pub hostdo: HostdoRules,
     pub network_rules: Vec<NetworkRule>,
+    pub network_deny_rules: Vec<NetworkRule>,
     pub network_default: NetworkPolicy,
 }
 
@@ -148,15 +162,20 @@ impl ComposedRules {
     pub fn compose(global: &ProjectRules, projects: &[ProjectRules]) -> Self {
         let mut commands = global.hostdo.commands.clone();
         let mut network_allowlist = global.network.allowlist.clone();
+        let mut network_denylist = global.network.denylist.clone();
 
         // Union: add project rules that don't duplicate a global argv.
         for proj in projects {
             for cmd in &proj.hostdo.commands {
-                if !commands.iter().any(|c| c.argv == cmd.argv) {
+                if !commands
+                    .iter()
+                    .any(|c| c.argv == cmd.argv && c.image == cmd.image)
+                {
                     commands.push(cmd.clone());
                 }
             }
             network_allowlist.extend(proj.network.allowlist.clone());
+            network_denylist.extend(proj.network.denylist.clone());
         }
 
         // Hostdo default policy: most restrictive wins (deny > prompt > auto).
@@ -179,6 +198,17 @@ impl ComposedRules {
                 network_rules.push(parsed);
             }
         }
+        let mut network_deny_rules = Vec::new();
+        let mut seen = HashSet::new();
+        for raw in network_denylist {
+            if !seen.insert(raw.clone()) {
+                continue;
+            }
+            // `load()` validates the syntax, so skip invalid entries defensively.
+            if let Ok(parsed) = parse_network_allowlist_rule(&raw) {
+                network_deny_rules.push(parsed);
+            }
+        }
 
         Self {
             hostdo: HostdoRules {
@@ -187,6 +217,7 @@ impl ComposedRules {
                 command_aliases: HashMap::new(),
             },
             network_rules,
+            network_deny_rules,
             // Coder-style rules engine is explicit allowlist with prompt-by-default.
             network_default: NetworkPolicy::Prompt,
         }
@@ -194,6 +225,13 @@ impl ComposedRules {
 
     /// Find the effective network policy for a given request.
     pub fn match_network(&self, method: &str, host: &str, path: &str) -> NetworkPolicy {
+        if self
+            .network_deny_rules
+            .iter()
+            .any(|r| network_rule_matches(r, method, host, path))
+        {
+            return NetworkPolicy::Deny;
+        }
         if self
             .network_rules
             .iter()
@@ -222,7 +260,19 @@ impl ComposedRules {
     /// command runs and is persisted for developer review, but it is not part
     /// of the approval identity.
     pub fn find_hostdo_command<'a>(&'a self, argv: &[String]) -> Option<&'a RuleCommand> {
-        self.hostdo.commands.iter().find(|c| c.argv == argv)
+        self.find_hostdo_command_for_target(argv, None)
+    }
+
+    /// Find an exact-match hostdo command by argv and execution image.
+    pub fn find_hostdo_command_for_target<'a>(
+        &'a self,
+        argv: &[String],
+        image: Option<&str>,
+    ) -> Option<&'a RuleCommand> {
+        self.hostdo
+            .commands
+            .iter()
+            .find(|c| c.argv == argv && c.image.as_deref() == image)
     }
 }
 
@@ -312,14 +362,11 @@ pub fn parse_network_allowlist_rule(raw: &str) -> Result<NetworkRule> {
     let mut paths = Vec::new();
 
     let trimmed = raw.trim();
-    anyhow::ensure!(
-        !trimmed.is_empty(),
-        "network.allowlist entry must not be empty"
-    );
+    anyhow::ensure!(!trimmed.is_empty(), "network rule entry must not be empty");
     for token in trimmed.split_whitespace() {
         let (key, value) = token
             .split_once('=')
-            .ok_or_else(|| anyhow::anyhow!("invalid token '{token}' in allowlist entry '{raw}'"))?;
+            .ok_or_else(|| anyhow::anyhow!("invalid token '{token}' in network entry '{raw}'"))?;
         let values: Vec<String> = value
             .split(',')
             .map(|v| v.trim())
@@ -328,7 +375,7 @@ pub fn parse_network_allowlist_rule(raw: &str) -> Result<NetworkRule> {
             .collect();
         anyhow::ensure!(
             !values.is_empty(),
-            "allowlist token '{key}' has no values in '{raw}'"
+            "network token '{key}' has no values in '{raw}'"
         );
         match key {
             "method" => {
@@ -343,12 +390,12 @@ pub fn parse_network_allowlist_rule(raw: &str) -> Result<NetworkRule> {
                 anyhow::ensure!(paths.is_empty(), "duplicate path key in '{raw}'");
                 paths = values;
             }
-            _ => anyhow::bail!("unknown key '{key}' in allowlist entry '{raw}'"),
+            _ => anyhow::bail!("unknown key '{key}' in network entry '{raw}'"),
         }
     }
     anyhow::ensure!(
         !domains.is_empty(),
-        "allowlist entry '{raw}' is missing required 'domain=' key"
+        "network entry '{raw}' is missing required 'domain=' key"
     );
     Ok(NetworkRule {
         methods,
@@ -378,6 +425,15 @@ pub fn load(path: &Path) -> Result<ProjectRules> {
             )
         })?;
     }
+    for entry in &parsed.network.denylist {
+        parse_network_allowlist_rule(entry).with_context(|| {
+            format!(
+                "invalid [network].denylist entry '{}' in {}",
+                entry,
+                path.display()
+            )
+        })?;
+    }
     Ok(parsed)
 }
 
@@ -394,12 +450,18 @@ pub fn append_auto_approval(path: &Path, argv: &[String], cwd: &str) -> Result<(
 fn append_command_rule(path: &Path, argv: &[String], cwd: &str) -> Result<()> {
     let is_new = !path.exists();
     let mut rules = load(path)?;
-    if rules.hostdo.commands.iter().any(|c| c.argv == argv) {
+    if rules
+        .hostdo
+        .commands
+        .iter()
+        .any(|c| c.argv == argv && c.image.is_none())
+    {
         return Ok(());
     }
     rules.hostdo.commands.push(RuleCommand {
         name: None,
         argv: argv.to_vec(),
+        image: None,
         cwd: cwd.to_string(),
         env_profile: None,
         timeout_secs: default_timeout(),
@@ -431,6 +493,9 @@ const RULES_FILE_HEADER: &str = "\
 # Commit this file to your repository. harness-hat reads it but never pushes
 # changes back during workspace sync.
 #
+# Agents/LLMs are not permitted to edit this file directly. Harness Hat monitors
+# this policy file and will notify the user if an agent attempts to modify it.
+#
 # Preferred place for *human/LLM instructions*:
 # llm_instructions = \"\"\"\n\
 # \"\"\"
@@ -446,6 +511,15 @@ const RULES_FILE_HEADER: &str = "\
 #   [[hostdo.commands]]
 #   argv = [\"cargo\", \"test\"] # run inside container with `hostdo cargo test`
 #   cwd = \"$WORKSPACE\"         # execution cwd only, not part of approval matching
+#   timeout_secs = 60
+#   approval_mode = \"auto\"
+#
+# Short-lived Docker runner (exact argv + image match, auto-approved):
+#   [[hostdo.commands]]
+#   argv = [\"npm\", \"test\"]     # run with `hostdo --image node:20 npm test`
+#   image = \"node:20\"
+#   cwd = \"$WORKSPACE\"
+#   timeout_secs = 60
 #   approval_mode = \"auto\"
 #
 # Command alias (agent sends `hostdo tests`, expands server-side):
@@ -457,9 +531,13 @@ const RULES_FILE_HEADER: &str = "\
 
 # ── Network (HTTP/HTTPS proxy policy) ────────────────────────────────────────
 #
-# Coder-style allowlist rules. If no rule matches, request is prompted.
+# Coder-style network rules. Deny matches win over allow matches; if no rule
+# matches, request is prompted.
 # Rule format:
 #   method=GET,POST domain=api.example.com path=/v1/*,/health
+#
+# Use [network].allowlist for permanent allows and [network].denylist for
+# permanent denies.
 #
 # Domain matching:
 # - `domain=example.com` exact only

@@ -59,6 +59,7 @@ pub async fn run() -> Result<()> {
     let (exec_pending_tx, exec_pending_rx) = mpsc::channel::<crate::server::PendingItem>(64);
     let (stop_pending_tx, stop_pending_rx) = mpsc::channel::<crate::server::ContainerStopItem>(64);
     let (net_pending_tx, net_pending_rx) = mpsc::channel::<crate::proxy::PendingNetworkItem>(64);
+    let (activity_tx, activity_rx) = mpsc::unbounded_channel::<crate::activity::ActivityEvent>();
     let (audit_tx, audit_rx) = mpsc::channel(256);
 
     let session_registry = crate::server::SessionRegistry::default();
@@ -74,6 +75,8 @@ pub async fn run() -> Result<()> {
         audit_tx,
         token: token.clone(),
         sessions: session_registry.clone(),
+        exec_jobs: crate::server::ExecJobRegistry::default(),
+        activity_tx: activity_tx.clone(),
     };
     let exec_listener = tokio::net::TcpListener::bind(&exec_addr)
         .await
@@ -88,8 +91,12 @@ pub async fn run() -> Result<()> {
     let proxy_port = config.defaults.proxy.proxy_port;
     let proxy_host = config.defaults.proxy.proxy_host.clone();
     let proxy_addr = format!("{proxy_host}:{proxy_port}");
-    let proxy_state =
-        crate::proxy::ProxyState::new(ca.clone(), shared_config.clone(), net_pending_tx)?;
+    let proxy_state = crate::proxy::ProxyState::new(
+        ca.clone(),
+        shared_config.clone(),
+        net_pending_tx,
+        activity_tx,
+    )?;
     let proxy_addr_display = proxy_addr.clone();
     let proxy_state_for_server = proxy_state.clone();
     tokio::spawn(async move {
@@ -107,6 +114,7 @@ pub async fn run() -> Result<()> {
         exec_pending_rx,
         stop_pending_rx,
         net_pending_rx,
+        activity_rx,
         audit_rx,
         state,
         proxy_state,

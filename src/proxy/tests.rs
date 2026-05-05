@@ -47,7 +47,14 @@ docker_dir = "/tmp"
 [manager]
 global_rules_file = "/tmp/global.toml""#;
         let cfg: crate::config::Config = toml::from_str(raw).unwrap();
-        let state = ProxyState::new(ca, SharedConfig::new(Arc::new(cfg)), pending_tx).unwrap();
+        let (activity_tx, _activity_rx) = mpsc::unbounded_channel();
+        let state = ProxyState::new(
+            ca,
+            SharedConfig::new(Arc::new(cfg)),
+            pending_tx,
+            activity_tx,
+        )
+        .unwrap();
 
         let prompt_task = tokio::spawn(async move {
             prompt_network(
@@ -59,6 +66,7 @@ global_rules_file = "/tmp/global.toml""#;
                 Some("c".into()),
                 "ok",
                 true,
+                None,
             )
             .await
         });

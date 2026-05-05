@@ -27,6 +27,7 @@ use std::sync::{
 };
 use tokio::sync::mpsc;
 
+use crate::activity::{Activity, ActivityEvent, ActivityId};
 use crate::container::ContainerSession;
 use crate::proxy::{NetworkDecision, PendingNetworkItem, ProxyState};
 use crate::rules::NetworkPolicy;
@@ -65,6 +66,7 @@ pub enum LogEntry {
 pub enum SidebarItem {
     Workspace(usize),
     Session(usize),
+    Activity(ActivityId),
     Settings(usize),
     Launch(usize),
     Build(usize),
@@ -76,6 +78,7 @@ pub enum SidebarItem {
 pub enum Focus {
     Sidebar,
     Terminal,
+    Activity,
     Settings,
     ContainerPicker,
     ImageBuild,
@@ -130,6 +133,7 @@ pub struct App {
     pub pending_exec: Vec<PendingItem>,
     pub pending_stop: Vec<ContainerStopItem>,
     pub pending_net: Vec<PendingNetworkItem>,
+    pub activities: Vec<Activity>,
     pub log: VecDeque<LogEntry>,
     pub log_scroll: usize,
 
@@ -137,6 +141,7 @@ pub struct App {
     pub sidebar_idx: usize,
     pub sidebar_offset: usize,
     pub active_session: Option<usize>,
+    pub active_activity: Option<ActivityId>,
     pub preview_session: Option<usize>,
     pub active_settings_project: Option<usize>,
     pub settings_cursor: usize,
@@ -155,6 +160,7 @@ pub struct App {
     pub exec_pending_rx: mpsc::Receiver<PendingItem>,
     pub stop_pending_rx: mpsc::Receiver<ContainerStopItem>,
     pub net_pending_rx: mpsc::Receiver<PendingNetworkItem>,
+    pub activity_rx: mpsc::UnboundedReceiver<ActivityEvent>,
     pub audit_rx: mpsc::Receiver<AuditEntry>,
     build_event_rx: mpsc::UnboundedReceiver<BuildEvent>,
     build_event_tx: mpsc::UnboundedSender<BuildEvent>,

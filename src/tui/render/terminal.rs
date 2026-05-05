@@ -108,11 +108,31 @@ pub(crate) fn render_terminal(
         return;
     }
 
-    let desired_offset = if app.scroll_mode {
-        app.terminal_scroll
-    } else {
-        0
-    };
+    render_term_buffer(
+        frame,
+        inner,
+        &mut *term,
+        dimmed,
+        focused,
+        app.scroll_mode,
+        app.terminal_scroll,
+    );
+}
+
+pub(crate) fn render_term_buffer<T: alacritty_terminal::event::EventListener>(
+    frame: &mut Frame,
+    inner: Rect,
+    term: &mut alacritty_terminal::term::Term<T>,
+    dimmed: bool,
+    focused: bool,
+    scroll_mode: bool,
+    terminal_scroll: usize,
+) {
+    if inner.height == 0 || inner.width == 0 {
+        return;
+    }
+
+    let desired_offset = if scroll_mode { terminal_scroll } else { 0 };
     let max_scrollback = term.history_size();
     let desired_offset = desired_offset.min(max_scrollback);
     let current_offset = term.grid().display_offset();
@@ -277,7 +297,7 @@ pub(crate) fn render_terminal(
 
     frame.render_widget(Paragraph::new(rendered), inner);
 
-    if app.scroll_mode && max_scrollback > 0 {
+    if scroll_mode && max_scrollback > 0 {
         render_scrollbar(frame, inner, max_scrollback, actual_scroll, true);
     }
 }

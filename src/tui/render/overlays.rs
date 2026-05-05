@@ -61,6 +61,15 @@ pub(crate) fn render_exec_approval_overlay(
         .container_id
         .clone()
         .unwrap_or_else(|| "unknown-container".to_string());
+    let command_label = match &item.image {
+        Some(image) => format!("--image {image} {}", item.argv.join(" ")),
+        None => item.argv.join(" "),
+    };
+    let command_label = if item.timeout_secs == crate::rules::DEFAULT_TIMEOUT_SECS {
+        command_label
+    } else {
+        format!("--timeout {} {}", item.timeout_secs, command_label)
+    };
 
     let lines = vec![
         Line::from(""),
@@ -74,7 +83,7 @@ pub(crate) fn render_exec_approval_overlay(
         Line::from(vec![
             Span::styled("  Command : ", Style::default().fg(Color::DarkGray)),
             Span::styled(
-                item.argv.join(" "),
+                command_label,
                 Style::default()
                     .fg(Color::White)
                     .add_modifier(Modifier::BOLD),

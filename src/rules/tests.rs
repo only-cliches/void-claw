@@ -25,6 +25,7 @@ tests = { cmd = "cargo test", cwd = "$WORKSPACE" }
 
 [network]
 allowlist = ["domain=github.com"]
+denylist = ["domain=blocked.example.com"]
 "#;
 
         let parsed: Result<ProjectRules, toml::de::Error> = toml::from_str(raw);
@@ -32,6 +33,10 @@ allowlist = ["domain=github.com"]
         assert_eq!(rules.hostdo.command_aliases.len(), 2);
         assert_eq!(rules.hostdo.command_aliases["lint"].cmd(), "cargo clippy");
         assert_eq!(rules.hostdo.command_aliases["tests"].cmd(), "cargo test");
+        assert_eq!(
+            rules.network.denylist,
+            vec!["domain=blocked.example.com".to_string()]
+        );
     }
 
     #[test]
@@ -103,6 +108,7 @@ allowlist = ["domain=github.com"]
                 commands: vec![RuleCommand {
                     name: None,
                     argv: vec!["cargo".into(), "test".into()],
+                    image: None,
                     cwd: "/some/path".into(),
                     env_profile: None,
                     timeout_secs: 60,
@@ -112,6 +118,7 @@ allowlist = ["domain=github.com"]
                 command_aliases: Default::default(),
             },
             network_rules: vec![],
+            network_deny_rules: vec![],
             network_default: NetworkPolicy::Deny,
         };
 
@@ -257,6 +264,39 @@ allowlist = ["domain=github.com"]
     }
 
     #[test]
+    fn composed_network_denylist_precedes_allowlist() {
+        let global = ProjectRules {
+            network: NetworkRules {
+                allowlist: vec!["domain=*.example.com".into()],
+                denylist: vec![],
+            },
+            ..Default::default()
+        };
+        let project = ProjectRules {
+            network: NetworkRules {
+                allowlist: vec![],
+                denylist: vec!["domain=api.example.com".into()],
+            },
+            ..Default::default()
+        };
+
+        let rules = ComposedRules::compose(&global, &[project]);
+
+        assert_eq!(
+            rules.match_network("GET", "api.example.com", "/v1/users"),
+            NetworkPolicy::Deny
+        );
+        assert_eq!(
+            rules.match_network("GET", "cdn.example.com", "/asset.js"),
+            NetworkPolicy::Auto
+        );
+        assert_eq!(
+            rules.match_network("GET", "outside.example.net", "/"),
+            NetworkPolicy::Prompt
+        );
+    }
+
+    #[test]
     fn expand_cwd_vars_replaces_placeholders() {
         let mut rules = ComposedRules {
             hostdo: HostdoRules {
@@ -320,6 +360,44 @@ allowlist = ["domain=github.com"]
         let matched_npm = rules.find_hostdo_command(&["npm".into(), "install".into()]);
         assert!(matched_npm.is_some());
         assert_eq!(matched_npm.unwrap().approval_mode, ApprovalMode::Prompt);
+    }
+
+    #[test]
+    fn find_hostdo_command_distinguishes_image_target() {
+        let rules = ComposedRules {
+            hostdo: HostdoRules {
+                default_policy: ApprovalMode::Prompt,
+                commands: vec![
+                    RuleCommand {
+                        argv: vec!["npm".into(), "test".into()],
+                        image: None,
+                        cwd: "/tmp".into(),
+                        approval_mode: ApprovalMode::Auto,
+                        ..Default::default()
+                    },
+                    RuleCommand {
+                        argv: vec!["npm".into(), "test".into()],
+                        image: Some("node:20".into()),
+                        cwd: "/tmp".into(),
+                        approval_mode: ApprovalMode::Prompt,
+                        ..Default::default()
+                    },
+                ],
+                command_aliases: Default::default(),
+            },
+            ..Default::default()
+        };
+
+        let host_match = rules.find_hostdo_command_for_target(&["npm".into(), "test".into()], None);
+        assert_eq!(host_match.unwrap().approval_mode, ApprovalMode::Auto);
+
+        let image_match =
+            rules.find_hostdo_command_for_target(&["npm".into(), "test".into()], Some("node:20"));
+        assert_eq!(image_match.unwrap().approval_mode, ApprovalMode::Prompt);
+
+        let missing_image =
+            rules.find_hostdo_command_for_target(&["npm".into(), "test".into()], Some("node:18"));
+        assert!(missing_image.is_none());
     }
 
     #[test]

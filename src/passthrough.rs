@@ -108,6 +108,7 @@ pub async fn run_and_get_exit_code() -> Result<i32> {
     let (exec_pending_tx, exec_pending_rx) = mpsc::channel::<crate::server::PendingItem>(64);
     let (stop_pending_tx, stop_pending_rx) = mpsc::channel::<crate::server::ContainerStopItem>(64);
     let (net_pending_tx, net_pending_rx) = mpsc::channel::<crate::proxy::PendingNetworkItem>(64);
+    let (activity_tx, activity_rx) = mpsc::unbounded_channel::<crate::activity::ActivityEvent>();
     let (audit_tx, audit_rx) = mpsc::channel(256);
 
     let exec_bind_host = resolve_bind_host_for_container_access(
@@ -132,6 +133,8 @@ pub async fn run_and_get_exit_code() -> Result<i32> {
         audit_tx,
         token: token.clone(),
         sessions: session_registry.clone(),
+        exec_jobs: crate::server::ExecJobRegistry::default(),
+        activity_tx: activity_tx.clone(),
     };
     tokio::spawn(async move {
         if let Err(e) = crate::server::run_with_listener(server_state, exec_listener).await {
@@ -139,7 +142,8 @@ pub async fn run_and_get_exit_code() -> Result<i32> {
         }
     });
 
-    let proxy_state = crate::proxy::ProxyState::new(ca, shared_config.clone(), net_pending_tx)?;
+    let proxy_state =
+        crate::proxy::ProxyState::new(ca, shared_config.clone(), net_pending_tx, activity_tx)?;
     let scoped_proxy = crate::proxy::spawn_scoped_listener(
         &proxy_state,
         &proxy_bind_host,
@@ -147,6 +151,7 @@ pub async fn run_and_get_exit_code() -> Result<i32> {
         &runtime.container_name,
     )?;
     let proxy_url = format!("http://{}", scoped_proxy.addr);
+    let hostdo_script_host_path = config.docker_dir.join("scripts/hostdo.py");
 
     let ctr = crate::config::ContainerDef {
         name: runtime.container_name.clone(),
@@ -182,6 +187,7 @@ pub async fn run_and_get_exit_code() -> Result<i32> {
         &exec_url,
         &proxy_url,
         &ca_cert_path_str,
+        Some(hostdo_script_host_path.as_path()),
         Some(scoped_proxy),
         config.defaults.proxy.strict_network,
         term_rows.max(6),
@@ -204,6 +210,7 @@ pub async fn run_and_get_exit_code() -> Result<i32> {
         exec_pending_rx,
         stop_pending_rx,
         net_pending_rx,
+        activity_rx,
         audit_rx,
         state,
         proxy_state,

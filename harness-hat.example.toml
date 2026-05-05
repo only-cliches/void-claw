@@ -41,6 +41,9 @@ server_host = "0.0.0.0"
 # Env var name that carries the shared auth token for the exec bridge.
 token_env_var = "HARNESS_HAT_TOKEN"
 
+# Maximum command timeout an agent may request with `hostdo --timeout`, in seconds.
+max_timeout_secs = 3600
+
 # Executables that are always denied.
 # These are common shell escape or privilege escalation paths.
 denied_executables = ["sh", "bash", "zsh", "fish", "csh", "ksh", "sudo", "su", "doas"]

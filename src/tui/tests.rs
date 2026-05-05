@@ -1,4 +1,5 @@
 use super::{App, Focus, SidebarItem, restore_terminal_output};
+use crate::activity::{Activity, ActivityEvent, ActivityKind, ActivityState};
 use crate::ca::CaStore;
 use crate::config::Config;
 use crate::proxy::ProxyState;
@@ -6,6 +7,7 @@ use crate::shared_config::SharedConfig;
 use crate::state::StateManager;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 use std::time::Duration;
 use tokio::sync::mpsc;
 
@@ -133,10 +135,12 @@ image = "missing-image"
     let (_exec_tx, exec_rx) = mpsc::channel(8);
     let (_stop_tx, stop_rx) = mpsc::channel(8);
     let (net_tx, net_rx) = mpsc::channel(8);
+    let (activity_tx, activity_rx) = mpsc::unbounded_channel();
     let (_audit_tx, audit_rx) = mpsc::channel(8);
 
     let ca = Arc::new(CaStore::load_or_create(&root.join("ca")).expect("create CA"));
-    let proxy_state = ProxyState::new(ca, shared.clone(), net_tx).expect("proxy state");
+    let proxy_state =
+        ProxyState::new(ca, shared.clone(), net_tx, activity_tx).expect("proxy state");
     let state = StateManager::open(&root.join("state")).expect("state manager");
 
     App::new(
@@ -147,6 +151,7 @@ image = "missing-image"
         exec_rx,
         stop_rx,
         net_rx,
+        activity_rx,
         audit_rx,
         state,
         proxy_state,
@@ -220,6 +225,323 @@ fn preflight_missing_image_opens_image_build_pane() {
 }
 
 #[test]
+fn persist_exec_rule_updates_existing_timeout() {
+    let mut app = build_test_app();
+    let rules_path = app.config.get().workspaces[0]
+        .canonical_path
+        .join("harness-rules.toml");
+    std::fs::write(
+        &rules_path,
+        r#"
+[hostdo]
+default_policy = "prompt"
+
+[[hostdo.commands]]
+argv = ["cargo", "test"]
+cwd = "$WORKSPACE"
+timeout_secs = 60
+concurrency = "queue"
+approval_mode = "auto"
+"#,
+    )
+    .expect("write rules");
+
+    app.persist_exec_rule(
+        &rules_path,
+        &["cargo".to_string(), "test".to_string()],
+        None,
+        300,
+        "$WORKSPACE",
+        crate::rules::ApprovalMode::Auto,
+    )
+    .expect("persist rule");
+
+    let rules = crate::rules::load(&rules_path).expect("load rules");
+    assert_eq!(rules.hostdo.commands.len(), 1);
+    assert_eq!(rules.hostdo.commands[0].timeout_secs, 300);
+}
+
+#[test]
+fn persist_network_rule_writes_denylist_entry() {
+    let mut app = build_test_app();
+    let rules_path = app.config.get().workspaces[0]
+        .canonical_path
+        .join("harness-rules.toml");
+    std::fs::write(
+        &rules_path,
+        r#"
+[network]
+allowlist = ["domain=blocked.example.com"]
+"#,
+    )
+    .expect("write rules");
+
+    let updated_path = app
+        .persist_network_rule(
+            "blocked.example.com",
+            crate::rules::NetworkPolicy::Deny,
+            Some("project-a"),
+        )
+        .expect("persist network deny");
+
+    assert_eq!(updated_path.as_deref(), Some(rules_path.as_path()));
+    let rules = crate::rules::load(&rules_path).expect("load rules");
+    assert!(
+        rules
+            .network
+            .denylist
+            .iter()
+            .any(|r| r == "domain=blocked.example.com")
+    );
+    assert!(
+        !rules
+            .network
+            .allowlist
+            .iter()
+            .any(|r| r == "domain=blocked.example.com")
+    );
+
+    let second_update = app
+        .persist_network_rule(
+            "blocked.example.com",
+            crate::rules::NetworkPolicy::Deny,
+            Some("project-a"),
+        )
+        .expect("persist duplicate network deny");
+    assert!(second_update.is_none());
+}
+
+#[test]
+fn activity_events_update_history_and_state() {
+    let mut app = build_test_app();
+    let cancel_flag = Arc::new(AtomicBool::new(false));
+    let activity = Activity::new(
+        "project-a".to_string(),
+        Some("container-a".to_string()),
+        ActivityKind::Hostdo {
+            argv: vec!["cargo".into(), "test".into()],
+            image: None,
+            timeout_secs: 60,
+        },
+        ActivityState::PendingApproval,
+        cancel_flag,
+    );
+    let id = activity.id.clone();
+
+    app.apply_activity_event(ActivityEvent::Started(activity));
+    app.apply_activity_event(ActivityEvent::Line {
+        id: id.clone(),
+        line: "stdout: compiling".to_string(),
+    });
+    app.apply_activity_event(ActivityEvent::Finished {
+        id: id.clone(),
+        state: ActivityState::Complete,
+        status: Some("exit code 0".to_string()),
+    });
+
+    let activity = app.activity_by_id(&id).expect("activity exists");
+    assert_eq!(activity.state, ActivityState::Complete);
+    assert_eq!(activity.status.as_deref(), Some("exit code 0"));
+    assert!(activity.finished_at.is_some());
+    assert_eq!(
+        activity.lines.back().map(String::as_str),
+        Some("stdout: compiling")
+    );
+}
+
+#[test]
+fn hostdo_command_timer_starts_on_running_state() {
+    let mut app = build_test_app();
+    let activity = Activity::new(
+        "project-a".to_string(),
+        Some("container-a".to_string()),
+        ActivityKind::Hostdo {
+            argv: vec!["cargo".into(), "test".into()],
+            image: Some("rust".into()),
+            timeout_secs: 120,
+        },
+        ActivityState::Running,
+        Arc::new(AtomicBool::new(false)),
+    );
+    let id = activity.id.clone();
+
+    app.apply_activity_event(ActivityEvent::Started(activity));
+    assert!(
+        app.activity_by_id(&id)
+            .expect("activity exists")
+            .command_started_at
+            .is_none()
+    );
+
+    app.apply_activity_event(ActivityEvent::State {
+        id: id.clone(),
+        state: ActivityState::PullingImage,
+        status: Some("pulling Docker image 'rust'".to_string()),
+    });
+    assert!(
+        app.activity_by_id(&id)
+            .expect("activity exists")
+            .command_elapsed_duration()
+            .is_none()
+    );
+
+    app.apply_activity_event(ActivityEvent::State {
+        id: id.clone(),
+        state: ActivityState::Running,
+        status: Some("running cargo test".to_string()),
+    });
+    assert!(
+        app.activity_by_id(&id)
+            .expect("activity exists")
+            .command_started_at
+            .is_some()
+    );
+
+    app.apply_activity_event(ActivityEvent::Finished {
+        id: id.clone(),
+        state: ActivityState::Complete,
+        status: Some("exit code 0".to_string()),
+    });
+    let activity = app.activity_by_id(&id).expect("activity exists");
+    assert!(activity.command_finished_at.is_some());
+    assert!(activity.command_elapsed_duration().is_some());
+}
+
+#[test]
+fn activity_cancel_marks_flag_and_pending_hostdo() {
+    let mut app = build_test_app();
+    let cancel_flag = Arc::new(AtomicBool::new(false));
+    let activity = Activity::new(
+        "project-a".to_string(),
+        Some("container-a".to_string()),
+        ActivityKind::Hostdo {
+            argv: vec!["cargo".into(), "test".into()],
+            image: None,
+            timeout_secs: 60,
+        },
+        ActivityState::PendingApproval,
+        cancel_flag.clone(),
+    );
+    let id = activity.id.clone();
+    let (tx, _rx) = tokio::sync::oneshot::channel();
+
+    app.apply_activity_event(ActivityEvent::Started(activity));
+    app.pending_exec.push(crate::server::PendingItem {
+        id: "pending-1".to_string(),
+        activity_id: id.clone(),
+        cancel_flag: cancel_flag.clone(),
+        project: "project-a".to_string(),
+        container_id: Some("container-a".to_string()),
+        argv: vec!["cargo".into(), "test".into()],
+        image: None,
+        timeout_secs: 60,
+        cwd: std::path::PathBuf::from("/workspace"),
+        rule_cwd: std::path::PathBuf::from("/workspace"),
+        matched_command: None,
+        response_tx: Some(tx),
+    });
+
+    app.cancel_activity(&id);
+
+    assert!(cancel_flag.load(std::sync::atomic::Ordering::SeqCst));
+    assert!(app.pending_exec.is_empty());
+    let activity = app.activity_by_id(&id).expect("activity exists");
+    assert_eq!(activity.state, ActivityState::Cancelled);
+}
+
+#[test]
+fn activity_container_identity_matching_accepts_id_prefixes_and_names() {
+    assert!(App::container_identity_matches(
+        "abcdef",
+        "abcdef123456",
+        "codex",
+        "harness-codex"
+    ));
+    assert!(App::container_identity_matches(
+        "codex",
+        "abcdef123456",
+        "codex",
+        "harness-codex"
+    ));
+    assert!(!App::container_identity_matches(
+        "other",
+        "abcdef123456",
+        "codex",
+        "harness-codex"
+    ));
+    assert!(!App::container_identity_matches("anything", "", "", ""));
+}
+
+#[test]
+fn terminal_activities_wait_to_fade_until_unselected() {
+    let mut app = build_test_app();
+    let cancel_flag = Arc::new(AtomicBool::new(false));
+    let mut activity = Activity::new(
+        "project-a".to_string(),
+        Some("container-a".to_string()),
+        ActivityKind::Network {
+            method: "GET".to_string(),
+            host: "example.com".to_string(),
+            path: "/".to_string(),
+            protocol: "http".to_string(),
+            payload_preview: String::new(),
+            payload_truncated: false,
+            content_type: None,
+            content_length: None,
+        },
+        ActivityState::Complete,
+        cancel_flag,
+    );
+    activity.updated_at = std::time::Instant::now()
+        - Duration::from_secs(crate::activity::ACTIVITY_TERMINAL_TTL_SECS + 1);
+    let id = activity.id.clone();
+
+    app.apply_activity_event(ActivityEvent::Started(activity));
+    app.active_activity = Some(id.clone());
+    app.focus = Focus::Activity;
+
+    app.prune_terminal_activities();
+
+    let activity = app.activity_by_id(&id).expect("selected activity is kept");
+    assert!(activity.terminal_unselected_at.is_none());
+
+    app.active_activity = None;
+    app.focus = Focus::Sidebar;
+    app.prune_terminal_activities();
+
+    let activity = app
+        .activity_by_id_mut(&id)
+        .expect("activity starts fading after deselection");
+    assert!(activity.terminal_unselected_at.is_some());
+    activity.terminal_unselected_at = Some(
+        std::time::Instant::now()
+            - Duration::from_secs(crate::activity::ACTIVITY_TERMINAL_HIGHLIGHT_SECS + 1),
+    );
+
+    app.sidebar_idx = 0;
+    app.refresh_terminal_activity_selection(&[SidebarItem::Activity(id.clone())]);
+
+    let activity = app
+        .activity_by_id(&id)
+        .expect("highlighted activity resets fade");
+    assert!(activity.terminal_unselected_at.is_none());
+
+    app.refresh_terminal_activity_selection(&[SidebarItem::Launch(0)]);
+    let activity = app
+        .activity_by_id_mut(&id)
+        .expect("activity restarts fading after highlight moves away");
+    assert!(activity.terminal_unselected_at.is_some());
+    activity.terminal_unselected_at = Some(
+        std::time::Instant::now()
+            - Duration::from_secs(crate::activity::ACTIVITY_TERMINAL_TTL_SECS + 1),
+    );
+
+    app.prune_terminal_activities();
+
+    assert!(app.activity_by_id(&id).is_none());
+}
+
+#[test]
 fn sidebar_selection_tracks_session_preview() {
     let mut app = build_test_app();
     let items = vec![
@@ -238,6 +560,42 @@ fn sidebar_selection_tracks_session_preview() {
 }
 
 #[test]
+fn sidebar_selection_preserves_item_when_activity_rows_shift_indices() {
+    let mut app = build_test_app();
+    let before = vec![
+        SidebarItem::Workspace(0),
+        SidebarItem::Session(0),
+        SidebarItem::Launch(0),
+        SidebarItem::Settings(0),
+        SidebarItem::NewWorkspace,
+    ];
+    app.sidebar_idx = 3;
+    let selected = app.selected_sidebar_item_from(&before);
+
+    let after_insert = vec![
+        SidebarItem::Workspace(0),
+        SidebarItem::Session(0),
+        SidebarItem::Activity("activity-1".to_string()),
+        SidebarItem::Activity("activity-2".to_string()),
+        SidebarItem::Launch(0),
+        SidebarItem::Settings(0),
+        SidebarItem::NewWorkspace,
+    ];
+    app.restore_sidebar_selection(selected.as_ref(), &after_insert);
+    assert_eq!(app.sidebar_idx, 5);
+
+    let after_remove = vec![
+        SidebarItem::Workspace(0),
+        SidebarItem::Session(0),
+        SidebarItem::Launch(0),
+        SidebarItem::Settings(0),
+        SidebarItem::NewWorkspace,
+    ];
+    app.restore_sidebar_selection(selected.as_ref(), &after_remove);
+    assert_eq!(app.sidebar_idx, 3);
+}
+
+#[test]
 fn ctrl_g_toggles_terminal_fullscreen() {
     let mut app = build_test_app();
     app.focus = Focus::Terminal;
@@ -252,30 +610,76 @@ fn ctrl_g_toggles_terminal_fullscreen() {
 }
 
 #[test]
-fn double_escape_exits_terminal_fullscreen() {
+fn escape_returns_terminal_fullscreen_to_sidebar() {
     let mut app = build_test_app();
     app.focus = Focus::Terminal;
     app.active_session = Some(0);
     app.terminal_fullscreen = true;
 
     app.handle_terminal_key(key(KeyCode::Esc, KeyModifiers::NONE));
-    assert!(app.terminal_fullscreen);
-
-    app.handle_terminal_key(key(KeyCode::Esc, KeyModifiers::NONE));
     assert!(!app.terminal_fullscreen);
+    assert_eq!(app.focus, Focus::Sidebar);
+    assert!(!app.should_quit);
 }
 
 #[test]
-fn double_escape_quits_when_not_fullscreen() {
+fn escape_returns_terminal_to_sidebar_without_quitting() {
     let mut app = build_test_app();
     app.focus = Focus::Terminal;
     app.active_session = Some(0);
 
     app.handle_terminal_key(key(KeyCode::Esc, KeyModifiers::NONE));
     assert!(!app.should_quit);
+    assert_eq!(app.focus, Focus::Sidebar);
+}
 
-    app.handle_terminal_key(key(KeyCode::Esc, KeyModifiers::NONE));
-    assert!(app.should_quit);
+#[test]
+fn image_build_status_bar_only_shows_live_shortcuts() {
+    let mut app = build_test_app();
+    app.focus = Focus::ImageBuild;
+
+    let prompt_keys = super::render::status_bar_keys(&app);
+    assert!(!prompt_keys.contains("[r]"));
+    assert!(!prompt_keys.contains("[c]"));
+    assert!(prompt_keys.contains("[↵/l]select"));
+    assert!(prompt_keys.contains("[Esc/^B]back"));
+
+    app.build_task = Some(super::BuildTaskState {
+        label: "docker build".to_string(),
+        shell_command: "docker build .".to_string(),
+        cancel_flag: Arc::new(AtomicBool::new(false)),
+    });
+
+    let running_keys = super::render::status_bar_keys(&app);
+    assert!(!running_keys.contains("[r]"));
+    assert!(!running_keys.contains("[c]"));
+    assert!(running_keys.contains("[^C]cancel build"));
+    assert!(running_keys.contains("[Esc/^B]sidebar"));
+}
+
+#[test]
+fn right_pane_gap_only_shows_for_docker_build_views() {
+    let mut app = build_test_app();
+    assert_eq!(super::render::right_pane_gap_width(&app), 0);
+
+    app.focus = Focus::ImageBuild;
+    assert_eq!(super::render::right_pane_gap_width(&app), 1);
+
+    app.focus = Focus::Sidebar;
+    app.build_project_idx = Some(0);
+    app.build_container_idx = Some(0);
+    app.build_task = Some(super::BuildTaskState {
+        label: "docker build".to_string(),
+        shell_command: "docker build .".to_string(),
+        cancel_flag: Arc::new(AtomicBool::new(false)),
+    });
+    let items = app.sidebar_items();
+    app.sidebar_idx = items
+        .iter()
+        .position(|item| matches!(item, SidebarItem::Build(_)))
+        .expect("build row present");
+
+    assert_eq!(super::render::right_pane_gap_width(&app), 1);
 }
 
 #[test]
@@ -423,6 +827,76 @@ default_policy = "prompt"
 "#,
     )
     .expect("write workspace rules");
+
+    std::thread::sleep(Duration::from_millis(800));
+    app.tick_base_rules_file_watch();
+    assert!(app.base_rules_changed.is_some());
+    assert_eq!(
+        app.base_rules_changed.as_ref().map(|s| s.path.clone()),
+        Some(rules_path)
+    );
+}
+
+#[test]
+fn workspace_rules_created_by_cli_after_open_does_not_trigger_security_modal() {
+    let mut app = build_test_app();
+    let project_path = app.config.get().workspaces[0].canonical_path.clone();
+    let rules_path = project_path.join("harness-rules.toml");
+
+    assert!(!rules_path.exists());
+    app.tick_base_rules_file_watch();
+
+    let result = crate::agents::inject_agent_config(
+        &crate::config::AgentKind::Codex,
+        &project_path,
+        &project_path,
+        "project-a",
+        true,
+        std::path::Path::new("/workspace"),
+        "http://127.0.0.1:0",
+        "http://127.0.0.1:0",
+        None,
+    )
+    .expect("inject agent config");
+    let created = result.created_rules.expect("starter rules file created");
+    assert_eq!(created.path, rules_path);
+    app.record_completed_rules_internal_write(created.path, created.content);
+
+    std::thread::sleep(Duration::from_millis(800));
+    app.tick_base_rules_file_watch();
+    assert!(app.base_rules_changed.is_none());
+}
+
+#[test]
+fn workspace_rules_tampered_during_cli_create_still_triggers_security_modal() {
+    let mut app = build_test_app();
+    let project_path = app.config.get().workspaces[0].canonical_path.clone();
+    let rules_path = project_path.join("harness-rules.toml");
+
+    app.tick_base_rules_file_watch();
+
+    let result = crate::agents::inject_agent_config(
+        &crate::config::AgentKind::Codex,
+        &project_path,
+        &project_path,
+        "project-a",
+        true,
+        std::path::Path::new("/workspace"),
+        "http://127.0.0.1:0",
+        "http://127.0.0.1:0",
+        None,
+    )
+    .expect("inject agent config");
+    let created = result.created_rules.expect("starter rules file created");
+    std::fs::write(
+        &rules_path,
+        r#"
+[hostdo]
+default_policy = "deny"
+"#,
+    )
+    .expect("tamper rules file");
+    app.record_completed_rules_internal_write(created.path, created.content);
 
     std::thread::sleep(Duration::from_millis(800));
     app.tick_base_rules_file_watch();

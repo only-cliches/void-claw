@@ -10,6 +10,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, atomic::AtomicBool};
 use std::time::Instant;
+use tempfile::NamedTempFile;
 use tracing::info;
 use tracing::instrument;
 
@@ -45,6 +46,7 @@ pub fn spawn(
     exec_url: &str,
     proxy_url: &str,
     ca_cert_host_path: &str,
+    hostdo_script_host_path: Option<&Path>,
     scoped_proxy: Option<crate::proxy::ScopedProxyListener>,
     strict_network: bool,
     rows: u16,
@@ -126,6 +128,20 @@ pub fn spawn(
         "-w".to_string(),
         mount_str.clone(),
     ]);
+
+    let hostdo_tempfile = match hostdo_script_host_path {
+        Some(path) => Some(prepare_executable_helper_script(
+            path,
+            "harness-hat-hostdo-",
+        )?),
+        None => None,
+    };
+    if let Some(hostdo) = hostdo_tempfile.as_ref() {
+        docker_args.extend_from_slice(&[
+            "-v".to_string(),
+            format!("{}:/usr/local/bin/hostdo:ro", hostdo.path().display()),
+        ]);
+    }
 
     // Prepare secure env file to prevent token leakage via `ps`
     let mut env_file = tempfile::Builder::new()
@@ -437,9 +453,39 @@ pub fn spawn(
             _scoped_proxy: scoped_proxy,
             _cred_tempfile,
             _env_tempfile: Some(env_file),
+            _hostdo_tempfile: hostdo_tempfile,
         },
         launch_notes,
     ))
+}
+
+fn prepare_executable_helper_script(path: &Path, prefix: &str) -> Result<NamedTempFile> {
+    let contents = std::fs::read(path)
+        .with_context(|| format!("reading helper script '{}'", path.display()))?;
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    let mut file = tempfile::Builder::new()
+        .prefix(prefix)
+        .tempfile_in(parent)
+        .with_context(|| format!("creating helper script temp file in '{}'", parent.display()))?;
+    file.write_all(&contents)
+        .context("writing helper script temp file")?;
+    file.flush().context("flushing helper script temp file")?;
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = file
+            .as_file()
+            .metadata()
+            .context("reading helper script temp file metadata")?
+            .permissions();
+        perms.set_mode(0o755);
+        file.as_file()
+            .set_permissions(perms)
+            .context("marking helper script temp file executable")?;
+    }
+
+    Ok(file)
 }
 
 /// Launch a one-shot passthrough container session.
@@ -605,5 +651,6 @@ pub fn spawn_passthrough(
         _scoped_proxy: None,
         _cred_tempfile: None,
         _env_tempfile: None,
+        _hostdo_tempfile: None,
     })
 }

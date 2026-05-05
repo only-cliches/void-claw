@@ -8,6 +8,13 @@ impl App {
         }
 
         if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
+            if self.focus == Focus::Activity
+                && let Some(id) = self.active_activity.clone()
+            {
+                self.cancel_activity(&id);
+                return;
+            }
+
             if self.build_is_running() {
                 self.cancel_build();
                 return;
@@ -68,6 +75,15 @@ impl App {
             return;
         }
 
+        if self.focus == Focus::Activity
+            && (key.code == KeyCode::Esc
+                || (key.code == KeyCode::Char('b')
+                    && key.modifiers.contains(KeyModifiers::CONTROL)))
+        {
+            self.focus_sidebar_shortcut();
+            return;
+        }
+
         if let Some(idx) = self.active_exec_modal_idx() {
             match key.code {
                 KeyCode::Char('y') | KeyCode::Enter => self.approve_exec(idx, false),
@@ -113,6 +129,7 @@ impl App {
         match self.focus {
             Focus::Sidebar => self.handle_sidebar_key(key),
             Focus::Terminal => self.handle_terminal_key(key),
+            Focus::Activity => self.handle_activity_key(key),
             Focus::Settings => self.handle_settings_key(key),
             Focus::ContainerPicker => self.handle_picker_key(key),
             Focus::ImageBuild => self.handle_build_key(key),
@@ -127,6 +144,10 @@ impl App {
         match self.focus {
             Focus::Sidebar => {}
             Focus::Terminal => {
+                self.focus = Focus::Sidebar;
+            }
+            Focus::Activity => {
+                self.active_activity = None;
                 self.focus = Focus::Sidebar;
             }
             Focus::Settings => {
@@ -243,6 +264,7 @@ impl App {
     pub(crate) fn update_sidebar_preview(&mut self, items: &[SidebarItem]) {
         self.preview_session = match items.get(self.sidebar_idx) {
             Some(SidebarItem::Session(si)) => Some(*si),
+            Some(SidebarItem::Activity(id)) => self.session_for_activity(id),
             _ => None,
         };
     }
@@ -254,12 +276,17 @@ impl App {
             }
             Some(SidebarItem::Settings(pi)) => {
                 self.active_settings_project = Some(pi);
+                self.active_activity = None;
                 self.settings_cursor = 0;
                 self.focus = Focus::Settings;
             }
-            Some(SidebarItem::Launch(_)) => self.open_picker(),
+            Some(SidebarItem::Launch(_)) => {
+                self.active_activity = None;
+                self.open_picker();
+            }
             Some(SidebarItem::Build(_)) => {
                 self.active_session = None;
+                self.active_activity = None;
                 self.focus = Focus::ImageBuild;
                 self.active_settings_project = None;
             }
@@ -273,10 +300,30 @@ impl App {
                 self.scroll_mouse_passthrough = false;
                 self.terminal_scroll = 0;
                 self.focus = Focus::Terminal;
+                self.active_activity = None;
+                self.active_settings_project = None;
+            }
+            Some(SidebarItem::Activity(id)) => {
+                self.active_session = self.session_for_activity(&id);
+                self.preview_session = self.active_session;
+                self.active_activity = Some(id);
+                self.focus = Focus::Activity;
                 self.active_settings_project = None;
             }
             Some(SidebarItem::NewWorkspace) => self.open_new_project(),
             None => {}
+        }
+    }
+
+    pub(crate) fn handle_activity_key(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Esc => self.focus_sidebar_shortcut(),
+            KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                if let Some(id) = self.active_activity.clone() {
+                    self.cancel_activity(&id);
+                }
+            }
+            _ => {}
         }
     }
 
@@ -292,6 +339,7 @@ impl App {
         });
         self.focus = Focus::NewWorkspace;
         self.active_session = None;
+        self.active_activity = None;
         self.active_settings_project = None;
         self.container_picker = None;
     }

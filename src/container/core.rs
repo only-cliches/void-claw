@@ -40,6 +40,7 @@ pub struct ContainerSession {
     pub(crate) _scoped_proxy: Option<crate::proxy::ScopedProxyListener>,
     pub(crate) _cred_tempfile: Option<NamedTempFile>,
     pub(crate) _env_tempfile: Option<NamedTempFile>,
+    pub(crate) _hostdo_tempfile: Option<NamedTempFile>,
 }
 
 /// Event sink that keeps the Alacritty-backed PTY state synchronized with the
@@ -325,6 +326,12 @@ pub(crate) fn append_gemini_home_args(
 #[cfg(test)]
 mod tests {
     use super::append_gemini_home_args;
+    use alacritty_terminal::event::{Event, EventListener, WindowSize};
+    use alacritty_terminal::vte::ansi::Rgb;
+    use std::sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+    };
 
     #[test]
     fn gemini_home_args_mounts_both_possible_homes() {
@@ -391,6 +398,29 @@ mod tests {
         assert!(args.contains(&"CODEX_HOME=/home/ubuntu/.codex".to_string()));
         assert!(args.contains(&"-v".to_string()));
         assert!(args.contains(&format!("{}/.codex:/home/ubuntu/.codex:rw", root.display())));
+    }
+
+    #[test]
+    fn session_event_proxy_sets_bell_only_on_terminal_bell_event() {
+        let has_bell = Arc::new(AtomicBool::new(false));
+        let proxy = super::SessionEventProxy {
+            sender: Arc::new(Mutex::new(None)),
+            window_size: Arc::new(Mutex::new(WindowSize {
+                num_lines: 24,
+                num_cols: 80,
+                cell_width: 0,
+                cell_height: 0,
+            })),
+            exited: Arc::new(AtomicBool::new(false)),
+            has_bell: has_bell.clone(),
+            default_fg: Rgb { r: 0, g: 0, b: 0 },
+            default_bg: Rgb { r: 0, g: 0, b: 0 },
+            grayscale_palette: false,
+        };
+
+        assert!(!has_bell.load(Ordering::Relaxed));
+        proxy.send_event(Event::Bell);
+        assert!(has_bell.load(Ordering::Relaxed));
     }
 }
 

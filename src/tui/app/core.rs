@@ -59,6 +59,37 @@ impl App {
             .unwrap_or(0)
     }
 
+    pub(crate) fn selected_sidebar_item_from(&self, items: &[SidebarItem]) -> Option<SidebarItem> {
+        items.get(self.sidebar_idx).cloned()
+    }
+
+    pub(crate) fn restore_sidebar_selection(
+        &mut self,
+        selected: Option<&SidebarItem>,
+        items: &[SidebarItem],
+    ) {
+        if items.is_empty() {
+            self.sidebar_idx = 0;
+            self.sidebar_offset = 0;
+            self.preview_session = None;
+            return;
+        }
+
+        if let Some(selected) = selected
+            && let Some(idx) = items.iter().position(|item| item == selected)
+        {
+            self.sidebar_idx = idx;
+            self.update_sidebar_preview(items);
+            return;
+        }
+
+        self.sidebar_idx = self.sidebar_idx.min(items.len().saturating_sub(1));
+        if !Self::sidebar_item_is_selectable(&items[self.sidebar_idx]) {
+            self.sidebar_idx = Self::first_selectable_sidebar_idx(items);
+        }
+        self.update_sidebar_preview(items);
+    }
+
     pub fn new(
         config: SharedConfig,
         loaded_config_path: PathBuf,
@@ -67,6 +98,7 @@ impl App {
         exec_pending_rx: mpsc::Receiver<PendingItem>,
         stop_pending_rx: mpsc::Receiver<ContainerStopItem>,
         net_pending_rx: mpsc::Receiver<PendingNetworkItem>,
+        activity_rx: mpsc::UnboundedReceiver<ActivityEvent>,
         audit_rx: mpsc::Receiver<AuditEntry>,
         state: StateManager,
         proxy_state: ProxyState,
@@ -107,7 +139,12 @@ impl App {
 
         let rules_path = &cfg.manager.global_rules_file;
         let (hostdo_rule_count, network_rule_count) = crate::rules::load(rules_path)
-            .map(|r| (r.hostdo.commands.len(), r.network.allowlist.len()))
+            .map(|r| {
+                (
+                    r.hostdo.commands.len(),
+                    r.network.allowlist.len() + r.network.denylist.len(),
+                )
+            })
             .unwrap_or((0, 0));
         log.push_front(LogEntry::Msg {
             text: format!(
@@ -131,6 +168,7 @@ impl App {
             pending_exec: vec![],
             pending_stop: vec![],
             pending_net: vec![],
+            activities: vec![],
             log,
             log_scroll: 0,
             focus: Focus::Sidebar,
@@ -150,6 +188,7 @@ impl App {
             ),
             sidebar_offset: 0,
             active_session: None,
+            active_activity: None,
             preview_session: None,
             active_settings_project: None,
             settings_cursor: 0,
@@ -166,6 +205,7 @@ impl App {
             exec_pending_rx,
             stop_pending_rx,
             net_pending_rx,
+            activity_rx,
             audit_rx,
             build_event_rx,
             build_event_tx,
@@ -259,6 +299,21 @@ impl App {
         );
     }
 
+    pub(crate) fn record_completed_rules_internal_write(
+        &mut self,
+        path: PathBuf,
+        expected_content: String,
+    ) {
+        match std::fs::read_to_string(&path) {
+            Ok(current) if current == expected_content => {
+                self.pending_base_rules_internal_write.remove(&path);
+                self.watched_rules_stamps
+                    .insert(path.clone(), Self::watched_file_stamp(&path));
+            }
+            _ => self.note_rules_internal_write(path, expected_content),
+        }
+    }
+
     #[cfg(test)]
     pub(crate) fn note_base_rules_internal_write(&mut self, expected_content: String) {
         let path = self.config.get().manager.global_rules_file.clone();
@@ -273,6 +328,9 @@ impl App {
             for (si, session) in self.sessions.iter().enumerate() {
                 if session.project == proj.name {
                     items.push(SidebarItem::Session(si));
+                    for activity in self.activities_for_session(si) {
+                        items.push(SidebarItem::Activity(activity.id.clone()));
+                    }
                 }
             }
             if self.build_project_idx == Some(pi) && self.build_is_running() {
@@ -293,6 +351,11 @@ impl App {
                 let name = self.sessions.get(*si)?.project.as_str();
                 cfg.workspaces.iter().position(|p| p.name == name)
             }
+            Some(SidebarItem::Activity(id)) => {
+                let cfg = self.config.get();
+                let project = self.activity_by_id(id)?.project.as_str();
+                cfg.workspaces.iter().position(|p| p.name == project)
+            }
             Some(SidebarItem::Settings(pi)) => Some(*pi),
             Some(SidebarItem::Launch(pi)) => Some(*pi),
             Some(SidebarItem::Build(pi)) => Some(*pi),
@@ -312,6 +375,181 @@ impl App {
             .filter(|(_, item)| item.project == project)
             .map(|(i, _)| i)
             .collect()
+    }
+
+    pub(crate) fn activity_by_id(&self, id: &str) -> Option<&Activity> {
+        self.activities.iter().find(|activity| activity.id == id)
+    }
+
+    pub(crate) fn activity_by_id_mut(&mut self, id: &str) -> Option<&mut Activity> {
+        self.activities
+            .iter_mut()
+            .find(|activity| activity.id == id)
+    }
+
+    pub(crate) fn activities_for_session(&self, session_idx: usize) -> Vec<&Activity> {
+        let Some(session) = self.sessions.get(session_idx) else {
+            return vec![];
+        };
+        self.activities
+            .iter()
+            .filter(|activity| {
+                activity.project == session.project
+                    && activity.container.as_deref().is_some_and(|container| {
+                        Self::container_matches_session(container, session)
+                    })
+            })
+            .collect()
+    }
+
+    pub(crate) fn session_for_activity(&self, id: &str) -> Option<usize> {
+        let activity = self.activity_by_id(id)?;
+        self.sessions.iter().position(|session| {
+            activity.project == session.project
+                && activity
+                    .container
+                    .as_deref()
+                    .is_some_and(|container| Self::container_matches_session(container, session))
+        })
+    }
+
+    fn container_matches_session(container: &str, session: &ContainerSession) -> bool {
+        Self::container_identity_matches(
+            container,
+            &session.container_id,
+            &session.container_name,
+            &session.docker_name,
+        )
+    }
+
+    pub(crate) fn container_identity_matches(
+        container: &str,
+        container_id: &str,
+        container_name: &str,
+        docker_name: &str,
+    ) -> bool {
+        let normalized = container.trim();
+        !normalized.is_empty()
+            && ((!container_id.is_empty()
+                && (container_id == normalized
+                    || container_id.starts_with(normalized)
+                    || normalized.starts_with(container_id)))
+                || container_name == normalized
+                || docker_name == normalized)
+    }
+
+    pub(crate) fn apply_activity_event(&mut self, event: ActivityEvent) {
+        match event {
+            ActivityEvent::Started(activity) => {
+                if let Some(existing) = self.activity_by_id_mut(&activity.id) {
+                    *existing = activity;
+                } else {
+                    self.activities.push(activity);
+                }
+            }
+            ActivityEvent::State { id, state, status } => {
+                if let Some(activity) = self.activity_by_id_mut(&id) {
+                    activity.state = state;
+                    activity.status = status;
+                    activity.updated_at = std::time::Instant::now();
+                    if activity.state == crate::activity::ActivityState::Running {
+                        activity.mark_command_started(activity.updated_at);
+                    } else if matches!(
+                        activity.state,
+                        crate::activity::ActivityState::PendingApproval
+                            | crate::activity::ActivityState::PullingImage
+                    ) {
+                        activity.clear_command_timing();
+                    }
+                    if activity.state.is_terminal() {
+                        activity.finished_at.get_or_insert(activity.updated_at);
+                        activity.mark_command_finished(activity.updated_at);
+                    } else {
+                        activity.finished_at = None;
+                        activity.terminal_unselected_at = None;
+                    }
+                }
+            }
+            ActivityEvent::Line { id, line } => {
+                if let Some(activity) = self.activity_by_id_mut(&id) {
+                    activity.push_line(line);
+                }
+            }
+            ActivityEvent::Finished { id, state, status } => {
+                if let Some(activity) = self.activity_by_id_mut(&id) {
+                    activity.state = state;
+                    activity.status = status;
+                    activity.updated_at = std::time::Instant::now();
+                    activity.finished_at = Some(activity.updated_at);
+                    activity.mark_command_finished(activity.updated_at);
+                    activity.terminal_unselected_at = None;
+                }
+            }
+        }
+    }
+
+    pub(crate) fn cancel_activity(&mut self, id: &str) {
+        if let Some(activity) = self.activity_by_id(id) {
+            activity.request_cancel();
+        }
+        if let Some(idx) = self
+            .pending_exec
+            .iter()
+            .position(|item| item.activity_id == id)
+        {
+            self.deny_exec(idx);
+        }
+        if let Some(idx) = self
+            .pending_net
+            .iter()
+            .position(|item| item.activity_id == id)
+        {
+            self.deny_net(idx);
+        }
+        if let Some(activity) = self.activity_by_id_mut(id) {
+            activity.state = crate::activity::ActivityState::Cancelled;
+            activity.status = Some("cancel requested".to_string());
+            activity.updated_at = std::time::Instant::now();
+            activity.finished_at = Some(activity.updated_at);
+            activity.mark_command_finished(activity.updated_at);
+            activity.terminal_unselected_at = None;
+        }
+    }
+
+    pub(crate) fn refresh_terminal_activity_selection(&mut self, items: &[SidebarItem]) {
+        let now = std::time::Instant::now();
+        let active_activity = self.active_activity.clone();
+        let sidebar_activity = items.get(self.sidebar_idx).and_then(|item| match item {
+            SidebarItem::Activity(id) => Some(id.clone()),
+            _ => None,
+        });
+        for activity in &mut self.activities {
+            if !activity.state.is_terminal() {
+                activity.terminal_unselected_at = None;
+                continue;
+            }
+            let is_selected = active_activity.as_deref() == Some(activity.id.as_str())
+                || sidebar_activity.as_deref() == Some(activity.id.as_str());
+            if is_selected {
+                activity.terminal_unselected_at = None;
+            } else if activity.terminal_unselected_at.is_none() {
+                activity.terminal_unselected_at = Some(now);
+            }
+        }
+    }
+
+    pub(crate) fn prune_terminal_activities(&mut self) {
+        let now = std::time::Instant::now();
+        let ttl = std::time::Duration::from_secs(crate::activity::ACTIVITY_TERMINAL_TTL_SECS);
+        let items = self.sidebar_items();
+        self.refresh_terminal_activity_selection(&items);
+        self.activities.retain(|activity| {
+            !activity.state.is_terminal()
+                || activity
+                    .terminal_unselected_at
+                    .map(|unselected_at| now.duration_since(unselected_at) < ttl)
+                    .unwrap_or(true)
+        });
     }
 
     pub(crate) fn active_exec_modal_idx(&self) -> Option<usize> {
@@ -467,7 +705,7 @@ impl App {
                     "Loaded rules from {} (hostdo: {}, network: {})",
                     rules_path.display(),
                     r.hostdo.commands.len(),
-                    r.network.allowlist.len()
+                    r.network.allowlist.len() + r.network.denylist.len()
                 ),
                 false,
             ),

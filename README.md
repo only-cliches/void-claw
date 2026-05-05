@@ -1,16 +1,16 @@
 <div align="center">
 
-# 🕵️ Harness Hat 🛡️
+# 🎩 Harness Hat 🛡️
 
-**Zero-trust container manager for AI coding agents**
+**Network, Disk, and Host Isolation for AI Coding Agents**
 
 Open-source, local-first alternative inspired by [Coder Agent Firewall](https://coder.com/docs/ai-coder/agent-firewall).
 
 </div>
 
-![Harness Hat Demo showing launching an agent and the approval dialog.](https://github.com/only-cliches/harness-hat/blob/main/demo.gif?raw=true)
+![Harness Hat Demo showing launching an agent and the approval dialog.](https://github.com/only-cliches/harness-hat/blob/main/example.gif?raw=true)
 
-AI coding agents are powerful, and by default, completely unconstrained. Give one your terminal and it has your machine: your files, your credentials, and your network. Harness Hat enforces a zero-trust boundary around every agent session, running agents in isolated Docker containers with policy-enforced access to your code, your host, and the outside world. Nothing gets through without a rule that allows it.
+Harness Hat enforces a zero-trust boundary around any terminal based agent, running them in isolated Docker containers with policy-enforced access to your code, your host, and the outside world. Nothing gets through without a rule that allows it.
 
 ## Key Features
 
@@ -72,9 +72,9 @@ The setup flow also seeds:
 
 ### 2. Add a Workspace
 
-Add a workspace from within the TUI, or by adding a `[[workspaces]]` block to your `harness-hat.toml` (legacy `[[projects]]` still works).
+Add a workspace from within the TUI, or by adding a `[[workspaces]]` block to your `harness-hat.toml`.
 
-When a workspace is registered, Harness Hat writes a `harness-rules.toml` to the root of your repository. This file defines the security policy for any agent operating in that codebase: which host commands it may request and which network destinations it may reach. Commit it to version control so your policy travels with the code.
+When a workspace is registered, Harness Hat writes a `harness-rules.toml` file to the root of your repository. This file defines the security policy for any agent operating in that codebase: which host commands it may request and which network destinations it may reach. Commit it to version control so your policy travels with the code.
 
 ### 3. Launch an Agent
 
@@ -107,9 +107,9 @@ Harness Hat is designed to be flexible. It ships with first-class support for th
 * **Claude Code** (`@anthropic-ai/claude-code`)
 * **OpenAI Codex** (`@openai/codex`)
 * **Google Gemini CLI** (`@google/gemini-cli`)
-* **Opencode** (`opencode-ai`)
+* **OpenCode** (`opencode-ai`)
 
-For these agents, Harness Hat automatically bind-mounts authentication and session state (e.g. `~/.claude`, `~/.gemini`) so agents authenticate once and stay authenticated across container restarts.
+For these agents, Harness Hat automatically bind-mounts authentication and session state (e.g., `~/.claude`, `~/.gemini`) so agents authenticate once and stay authenticated across container restarts.
 
 ### Bring Your Own Agent (BYOA)
 
@@ -123,19 +123,19 @@ Harness Hat uses two files to separate concerns cleanly: one for your local envi
 
 Lives on your machine. Defines your environment:
 
-* Container profiles (which agent images to use)
-  * `container_profiles.<name>.image` resolves `<docker_dir>/<image>.dockerfile`
-  * `image` is a lowercase Dockerfile stem (`a-z`, `0-9`, `-`, `_`, `.`)
-  * Profiles are direct launch targets (there is no separate `[[containers]]` list)
-* Registered workspaces and their paths
-* Global network and execution defaults
+* Container profiles (which agent images to use):
+  * `container_profiles.<name>.image` resolves `<docker_dir>/<image>.dockerfile`.
+  * `image` is a lowercase Dockerfile stem (`a-z`, `0-9`, `-`, `_`, `.`).
+  * Profiles are direct launch targets (there is no separate `[[containers]]` list).
+* Registered workspaces and their paths.
+* Global network and execution defaults.
 
 ### `harness-rules.toml` (Workspace Security Policy)
 
 Lives in your repository. Defines what an agent is allowed to do:
 
 * **`[hostdo]`**: Which host commands the agent may request. Commands can be set to `auto` (always run), `deny` (always block), or `prompt` (ask you each time). Aliases let you map simple agent-facing commands to complex host-side ones.
-* **`[network]`**: Coder-style allowlist rules for outbound traffic (`method=... domain=... path=...`). If a request does not match an allowlist rule, it is denied.
+* **`[network]`**: Coder-style allowlist and denylist rules for outbound traffic (`method=... domain=... path=...`). Denylist matches win over allowlist matches; if no rule matches, Harness Hat prompts.
 
 ## Logging
 
@@ -174,8 +174,9 @@ Harness Hat's built-in MITM proxy intercepts all outbound HTTP and HTTPS traffic
 1. **Intercept**: All outbound requests from the container are routed through the Harness Hat proxy.
 2. **Evaluate**: The request is checked against your global config and the workspace's `harness-rules.toml`.
 3. **Enforce**:
+   * **Deny**: Request matches a `[network].denylist` expression.
    * **Allow**: Request matches a `[network].allowlist` expression.
-   * **Prompt**: No allowlist match (prompt by default).
+   * **Prompt**: No denylist or allowlist match (prompt by default).
 
 ### Proxy Configuration
 
@@ -192,6 +193,9 @@ allowlist = [
   "domain=*.npmjs.org",
   "method=GET domain=api.github.com path=/repos/*",
 ]
+denylist = [
+  "domain=tracking.example.com",
+]
 ```
 
 ## Agent Commands
@@ -202,8 +206,10 @@ Because agents run in an isolated container with no direct access to your machin
 
 Lets an agent request execution of specific commands on your host machine, without raw shell access.
 
-* **Usage inside container:** `hostdo <command> [args...]` (e.g. `hostdo cargo test`)
+* **Usage by agents inside container:** `hostdo <command> [args...]` (e.g. `hostdo cargo test`) to run on the host against the workspace, `hostdo --image <docker-image> <command> [args...]` for a short-lived Docker runner (e.g. `hostdo --image node:20 npm test`), or `hostdo --timeout <seconds> <command> [args...]` to request a longer command timeout.
 * **How it works:** The request is routed to the Harness Hat manager. Based on your `harness-rules.toml` policy, it is automatically executed, silently denied, or escalated to you in the TUI.
+* **Docker runner rules:** Image-backed commands match both `argv` and `image`, so approving `hostdo npm test` does not automatically approve `hostdo --image node:20 npm test`.
+* **Timeout rules:** Approved commands store `timeout_secs` in `harness-rules.toml`. Requested timeouts are capped by `[defaults.hostdo].max_timeout_secs` in `harness-hat.toml`.
 * **Aliases:** Map simple agent-facing commands to complex host-side ones (e.g. `hostdo tests` to `cargo test --all`).
 
 ### `killme` (Container Exit)

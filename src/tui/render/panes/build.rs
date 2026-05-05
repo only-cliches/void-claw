@@ -91,7 +91,7 @@ pub(crate) fn render_container_picker(frame: &mut Frame, app: &mut App, area: Re
 
     lines.push(Line::from(""));
     lines.push(Line::from(Span::styled(
-        "  [^B] Back to sidebar",
+        "  [Esc/^B] Back to sidebar",
         Style::default().fg(tone(Color::DarkGray)),
     )));
 
@@ -270,9 +270,13 @@ pub(crate) fn render_build_output(frame: &mut Frame, app: &App, area: Rect, dimm
         .border_style(border_style);
     let inner = block.inner(area);
     frame.render_widget(block, area);
+    let (output_area, footer_area) = build_output_areas(inner);
+    if let Some(footer_area) = footer_area {
+        render_build_output_footer(frame, footer_area, dimmed);
+    }
 
     let mut header_lines: Vec<Line> = vec![];
-    let max_cols = inner.width.saturating_sub(1) as usize;
+    let max_cols = output_area.width.saturating_sub(1) as usize;
     if let Some(cmd) = app.active_build_command() {
         let cmd = clamp_for_width(&strip_ansi_and_control(cmd), max_cols);
         header_lines.push(Line::from(vec![
@@ -282,7 +286,7 @@ pub(crate) fn render_build_output(frame: &mut Frame, app: &App, area: Rect, dimm
         header_lines.push(Line::from(""));
     }
 
-    let visible_rows = (inner.height as usize).saturating_sub(header_lines.len());
+    let visible_rows = (output_area.height as usize).saturating_sub(header_lines.len());
     let total = app.build_output.len();
     let max_scroll = total.saturating_sub(visible_rows);
     let scroll = app.build_scroll.min(max_scroll);
@@ -302,11 +306,43 @@ pub(crate) fn render_build_output(frame: &mut Frame, app: &App, area: Rect, dimm
         )));
     }
 
-    frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), inner);
+    frame.render_widget(
+        Paragraph::new(lines).wrap(Wrap { trim: false }),
+        output_area,
+    );
 
     if app.build_scroll > 0 && max_scroll > 0 {
-        render_scrollbar(frame, inner, max_scroll, scroll, true);
+        render_scrollbar(frame, output_area, max_scroll, scroll, true);
     }
+}
+
+fn build_output_areas(inner: Rect) -> (Rect, Option<Rect>) {
+    if inner.height <= 2 {
+        return (inner, None);
+    }
+
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Min(0), Constraint::Length(2)])
+        .split(inner);
+    (chunks[0], Some(chunks[1]))
+}
+
+fn render_build_output_footer(frame: &mut Frame, area: Rect, dimmed: bool) {
+    if area.height == 0 || area.width == 0 {
+        return;
+    }
+
+    frame.render_widget(
+        Paragraph::new(vec![
+            Line::from(""),
+            Line::from(Span::styled(
+                "  [^C] Cancel build   [Esc/^B] Back to sidebar",
+                Style::default().fg(maybe_dim(Color::DarkGray, dimmed)),
+            )),
+        ]),
+        area,
+    );
 }
 
 pub(crate) fn strip_ansi_and_control(input: &str) -> String {

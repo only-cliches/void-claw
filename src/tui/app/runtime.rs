@@ -2,6 +2,10 @@ use super::*;
 
 impl App {
     pub(crate) fn drain_channels(&mut self) {
+        let activity_selected_before = {
+            let items = self.sidebar_items();
+            self.selected_sidebar_item_from(&items)
+        };
         for _ in 0..32 {
             match self.exec_pending_rx.try_recv() {
                 Ok(item) => self.pending_exec.push(item),
@@ -20,6 +24,14 @@ impl App {
                 Err(_) => break,
             }
         }
+        for _ in 0..128 {
+            match self.activity_rx.try_recv() {
+                Ok(event) => self.apply_activity_event(event),
+                Err(_) => break,
+            }
+        }
+        let items = self.sidebar_items();
+        self.restore_sidebar_selection(activity_selected_before.as_ref(), &items);
         for _ in 0..32 {
             match self.audit_rx.try_recv() {
                 Ok(entry) => {
@@ -172,10 +184,13 @@ impl App {
             }
         }
 
-        let max = self.sidebar_items().len().saturating_sub(1);
-        if self.sidebar_idx > max {
-            self.sidebar_idx = max;
-        }
+        let selected_before_prune = {
+            let items = self.sidebar_items();
+            self.selected_sidebar_item_from(&items)
+        };
+        self.prune_terminal_activities();
+        let items = self.sidebar_items();
+        self.restore_sidebar_selection(selected_before_prune.as_ref(), &items);
     }
 
     pub(crate) fn handle_mouse(&mut self, mouse: MouseEvent) {

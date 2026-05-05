@@ -1,9 +1,20 @@
 use anyhow::Context;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::config::AgentKind;
 use crate::rules::{ApprovalMode, HostdoRules, NetworkRules, ProjectRules};
 // ── harness-rules.toml starter ───────────────────────────────────────────────────
+
+#[derive(Debug, Clone)]
+pub struct CreatedRulesFile {
+    pub path: PathBuf,
+    pub content: String,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct AgentConfigInjectionResult {
+    pub created_rules: Option<CreatedRulesFile>,
+}
 
 /// Generate a starter `harness-rules.toml` for the given agent kind.
 ///
@@ -69,7 +80,10 @@ pub fn generate_starter_project_rules(agent: &AgentKind) -> ProjectRules {
             default_policy: ApprovalMode::Prompt,
             ..HostdoRules::default()
         },
-        network: NetworkRules { allowlist },
+        network: NetworkRules {
+            allowlist,
+            denylist: Vec::new(),
+        },
     }
 }
 
@@ -101,10 +115,9 @@ pub fn inject_agent_config(
     _exec_url: &str,
     _proxy_url: &str,
     extra_instructions: Option<&str>,
-) -> anyhow::Result<bool> {
-    // Returns true if a new harness-rules.toml was created.
+) -> anyhow::Result<AgentConfigInjectionResult> {
     if *agent == AgentKind::None {
-        return Ok(false);
+        return Ok(AgentConfigInjectionResult::default());
     }
 
     // Ensure the workspace directory exists (it may not have been seeded yet).
@@ -153,14 +166,19 @@ Rules of engagement:\n\
             },
             extra
         ));
-        crate::rules::write_rules_file(&rules_path, &starter, true)
+        let content = crate::rules::render_rules_file(&starter, true)
+            .with_context(|| format!("rendering starter rules file '{}'", rules_path.display()))?;
+        std::fs::write(&rules_path, &content)
             .with_context(|| format!("writing starter rules file '{}'", rules_path.display()))?;
-        true
+        Some(CreatedRulesFile {
+            path: rules_path,
+            content,
+        })
     } else {
-        false
+        None
     };
 
-    Ok(created_rules)
+    Ok(AgentConfigInjectionResult { created_rules })
 }
 
 /// Instructions shown to the developer after first CA generation.

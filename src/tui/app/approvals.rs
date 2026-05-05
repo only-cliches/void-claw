@@ -8,18 +8,24 @@ impl App {
         if remember {
             let item = &self.pending_exec[idx];
             let argv = item.argv.clone();
+            let image = item.image.clone();
+            let timeout_secs = item.timeout_secs;
             let project_name = item.project.clone();
             let cwd = self.portable_cwd(&item.rule_cwd, &project_name);
             if let Some(rules_path) = self.project_rules_path(&project_name) {
                 match self.persist_exec_rule(
                     &rules_path,
                     &argv,
+                    image.as_deref(),
+                    timeout_secs,
                     &cwd,
                     crate::rules::ApprovalMode::Auto,
                 ) {
                     Ok(()) => {
+                        let command_label =
+                            format_exec_rule_label(&argv, image.as_deref(), timeout_secs);
                         self.push_log(
-                            format!("Saved rule to {}: {}", rules_path.display(), argv.join(" ")),
+                            format!("Saved rule to {}: {}", rules_path.display(), command_label),
                             false,
                         );
                         self.sync_rules_to_workspace(&project_name);
@@ -55,17 +61,27 @@ impl App {
         }
         let item = &self.pending_exec[idx];
         let argv = item.argv.clone();
+        let image = item.image.clone();
+        let timeout_secs = item.timeout_secs;
         let project_name = item.project.clone();
         let cwd = self.portable_cwd(&item.rule_cwd, &project_name);
         if let Some(rules_path) = self.project_rules_path(&project_name) {
-            match self.persist_exec_rule(&rules_path, &argv, &cwd, crate::rules::ApprovalMode::Deny)
-            {
+            match self.persist_exec_rule(
+                &rules_path,
+                &argv,
+                image.as_deref(),
+                timeout_secs,
+                &cwd,
+                crate::rules::ApprovalMode::Deny,
+            ) {
                 Ok(()) => {
+                    let command_label =
+                        format_exec_rule_label(&argv, image.as_deref(), timeout_secs);
                     self.push_log(
                         format!(
                             "Saved deny rule to {}: {}",
                             rules_path.display(),
-                            argv.join(" ")
+                            command_label
                         ),
                         false,
                     );
@@ -165,10 +181,7 @@ impl App {
                     }
                 } else {
                     self.push_log(
-                        format!(
-                            "network host '{}' denied by default (no explicit rule needed)",
-                            host
-                        ),
+                        format!("network host '{}' already permanently denied", host),
                         false,
                     );
                 }
@@ -214,24 +227,45 @@ impl App {
         &mut self,
         rules_path: &std::path::Path,
         argv: &[String],
+        image: Option<&str>,
+        timeout_secs: u64,
         cwd: &str,
         approval_mode: crate::rules::ApprovalMode,
     ) -> Result<()> {
         let is_new = !rules_path.exists();
         let mut rules = crate::rules::load(rules_path)
             .with_context(|| format!("loading rules file '{}'", rules_path.display()))?;
-        if rules.hostdo.commands.iter().any(|c| c.argv == argv) {
+        let mut changed = false;
+        if let Some(cmd) = rules
+            .hostdo
+            .commands
+            .iter_mut()
+            .find(|c| c.argv == argv && c.image.as_deref() == image)
+        {
+            if timeout_secs > cmd.timeout_secs {
+                cmd.timeout_secs = timeout_secs;
+                changed = true;
+            }
+            if cmd.approval_mode != approval_mode {
+                cmd.approval_mode = approval_mode;
+                changed = true;
+            }
+        } else {
+            rules.hostdo.commands.push(crate::rules::RuleCommand {
+                name: None,
+                argv: argv.to_vec(),
+                image: image.map(str::to_string),
+                cwd: cwd.to_string(),
+                env_profile: None,
+                timeout_secs,
+                concurrency: crate::rules::ConcurrencyPolicy::Queue,
+                approval_mode,
+            });
+            changed = true;
+        }
+        if !changed {
             return Ok(());
         }
-        rules.hostdo.commands.push(crate::rules::RuleCommand {
-            name: None,
-            argv: argv.to_vec(),
-            cwd: cwd.to_string(),
-            env_profile: None,
-            timeout_secs: 60,
-            concurrency: crate::rules::ConcurrencyPolicy::Queue,
-            approval_mode,
-        });
         let expected_content = crate::rules::render_rules_file(&rules, is_new)
             .with_context(|| format!("rendering rules file '{}'", rules_path.display()))?;
         self.note_rules_internal_write(rules_path.to_path_buf(), expected_content);
@@ -263,20 +297,40 @@ impl App {
         let mut rules = crate::rules::load(&rules_path)
             .with_context(|| format!("loading rules file '{}'", rules_path.display()))?;
 
-        if policy == NetworkPolicy::Deny {
-            // Network is deny-by-default under the Coder-style allowlist engine.
-            return Ok(None);
-        }
         let entry = format!("domain={host}");
-        let exists = rules
-            .network
-            .allowlist
+        let mut changed = false;
+        let entries = match policy {
+            NetworkPolicy::Auto => {
+                let original_len = rules.network.denylist.len();
+                rules
+                    .network
+                    .denylist
+                    .retain(|raw| !raw.trim().eq_ignore_ascii_case(&entry));
+                changed |= rules.network.denylist.len() != original_len;
+                &mut rules.network.allowlist
+            }
+            NetworkPolicy::Deny => {
+                let original_len = rules.network.allowlist.len();
+                rules
+                    .network
+                    .allowlist
+                    .retain(|raw| !raw.trim().eq_ignore_ascii_case(&entry));
+                changed |= rules.network.allowlist.len() != original_len;
+                &mut rules.network.denylist
+            }
+            NetworkPolicy::Prompt => return Ok(None),
+        };
+
+        let exists = entries
             .iter()
             .any(|raw| raw.trim().eq_ignore_ascii_case(&entry));
-        if exists {
+        if !exists {
+            entries.push(entry);
+            changed = true;
+        }
+        if !changed {
             return Ok(None);
         }
-        rules.network.allowlist.push(entry);
 
         let expected_content = crate::rules::render_rules_file(&rules, is_new)
             .with_context(|| format!("rendering rules file '{}'", rules_path.display()))?;
@@ -325,5 +379,17 @@ impl App {
 
     pub(crate) fn sync_rules_to_workspace(&mut self, project_name: &str) {
         let _ = project_name;
+    }
+}
+
+fn format_exec_rule_label(argv: &[String], image: Option<&str>, timeout_secs: u64) -> String {
+    let command = match image {
+        Some(image) => format!("--image {image} {}", argv.join(" ")),
+        None => argv.join(" "),
+    };
+    if timeout_secs == crate::rules::DEFAULT_TIMEOUT_SECS {
+        command
+    } else {
+        format!("--timeout {timeout_secs} {command}")
     }
 }

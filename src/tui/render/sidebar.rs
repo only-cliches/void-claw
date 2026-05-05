@@ -13,6 +13,9 @@ pub(crate) fn render_right_pane(frame: &mut Frame, app: &mut App, area: Rect) {
                 render_terminal(frame, app, area, si, preview_dimmed || has_modal, false);
                 render_terminal_overlays(frame, app, area, si);
             }
+            Some(SidebarItem::Activity(id)) => {
+                render_activity_detail(frame, app, area, id.as_str(), true);
+            }
             Some(SidebarItem::Settings(pi)) => {
                 render_project_settings(frame, app, area, pi, true);
             }
@@ -50,13 +53,26 @@ pub(crate) fn render_right_pane(frame: &mut Frame, app: &mut App, area: Rect) {
         return;
     }
 
-    if app.build_is_running() && build_output_is_selected(app) {
-        render_build_output(frame, app, area, false);
+    if app.focus == Focus::Activity {
+        if let Some(id) = app.active_activity.clone() {
+            render_activity_detail(frame, app, area, id.as_str(), false);
+        } else {
+            render_idle(frame, area);
+        }
         return;
     }
 
     if app.focus == Focus::ImageBuild {
-        render_image_build(frame, app, area, false);
+        if app.build_is_running() {
+            render_build_output(frame, app, area, false);
+        } else {
+            render_image_build(frame, app, area, false);
+        }
+        return;
+    }
+
+    if app.build_is_running() && build_output_is_selected(app) {
+        render_build_output(frame, app, area, false);
         return;
     }
 
@@ -101,6 +117,316 @@ pub(crate) fn build_output_is_selected(app: &App) -> bool {
         app.sidebar_items().get(app.sidebar_idx),
         Some(SidebarItem::Build(_))
     )
+}
+
+pub(crate) fn render_activity_detail(
+    frame: &mut Frame,
+    app: &App,
+    area: Rect,
+    activity_id: &str,
+    dimmed: bool,
+) {
+    let Some(activity) = app.activity_by_id(activity_id) else {
+        render_idle(frame, area);
+        return;
+    };
+    let tone = |c| maybe_dim(c, dimmed);
+    let title = match &activity.kind {
+        crate::activity::ActivityKind::Hostdo { .. } => " Hostdo Activity ",
+        crate::activity::ActivityKind::Network { .. } => " Network Activity ",
+    };
+    let block = Block::default()
+        .title(title)
+        .title_style(
+            Style::default()
+                .fg(tone(Color::Cyan))
+                .add_modifier(Modifier::BOLD),
+        )
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(tone(Color::Cyan)));
+
+    let elapsed = activity.elapsed_duration().as_secs();
+    let status_color = activity_status_color(&activity.state);
+    let mut lines = Vec::new();
+    lines.push(Line::from(""));
+    lines.push(Line::from(vec![
+        Span::styled("  State   : ", Style::default().fg(tone(Color::DarkGray))),
+        Span::styled(
+            activity.state.label(),
+            Style::default()
+                .fg(tone(status_color))
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(
+            format!("  total: {elapsed}s"),
+            Style::default().fg(tone(Color::DarkGray)),
+        ),
+    ]));
+    lines.push(Line::from(vec![
+        Span::styled("  Source  : ", Style::default().fg(tone(Color::DarkGray))),
+        Span::styled(
+            format!(
+                "workspace={}  container={}",
+                activity.project,
+                activity.container.as_deref().unwrap_or("unknown-container")
+            ),
+            Style::default().fg(tone(Color::White)),
+        ),
+    ]));
+
+    match &activity.kind {
+        crate::activity::ActivityKind::Hostdo {
+            argv,
+            image,
+            timeout_secs,
+        } => {
+            lines.push(Line::from(vec![
+                Span::styled("  Command : ", Style::default().fg(tone(Color::DarkGray))),
+                Span::styled(activity.title(), Style::default().fg(tone(Color::White))),
+            ]));
+            if let Some(image) = image {
+                lines.push(Line::from(vec![
+                    Span::styled("  Image   : ", Style::default().fg(tone(Color::DarkGray))),
+                    Span::styled(image.clone(), Style::default().fg(tone(Color::White))),
+                ]));
+            }
+            lines.push(Line::from(vec![
+                Span::styled("  Timeout : ", Style::default().fg(tone(Color::DarkGray))),
+                Span::styled(
+                    hostdo_timeout_label(activity, *timeout_secs),
+                    Style::default().fg(tone(Color::White)),
+                ),
+            ]));
+            if let Some(command_elapsed) = activity.command_elapsed_duration() {
+                lines.push(Line::from(vec![
+                    Span::styled(
+                        "  Command elapsed: ",
+                        Style::default().fg(tone(Color::DarkGray)),
+                    ),
+                    Span::styled(
+                        format!("{}s / {}s", command_elapsed.as_secs(), timeout_secs),
+                        Style::default().fg(tone(status_color)),
+                    ),
+                ]));
+            }
+            if argv.is_empty() {
+                lines.push(Line::from(Span::styled(
+                    "  <empty command>",
+                    Style::default().fg(tone(Color::Red)),
+                )));
+            }
+        }
+        crate::activity::ActivityKind::Network {
+            method,
+            host,
+            path,
+            protocol,
+            payload_preview,
+            payload_truncated,
+            content_type,
+            content_length,
+        } => {
+            lines.push(Line::from(vec![
+                Span::styled("  Method  : ", Style::default().fg(tone(Color::DarkGray))),
+                Span::styled(method.clone(), Style::default().fg(tone(Color::White))),
+            ]));
+            lines.push(Line::from(vec![
+                Span::styled("  Domain  : ", Style::default().fg(tone(Color::DarkGray))),
+                Span::styled(host.clone(), Style::default().fg(tone(Color::White))),
+            ]));
+            lines.push(Line::from(vec![
+                Span::styled("  Path    : ", Style::default().fg(tone(Color::DarkGray))),
+                Span::styled(path.clone(), Style::default().fg(tone(Color::White))),
+            ]));
+            lines.push(Line::from(vec![
+                Span::styled("  Protocol: ", Style::default().fg(tone(Color::DarkGray))),
+                Span::styled(protocol.clone(), Style::default().fg(tone(Color::White))),
+            ]));
+            if let Some(content_type) = content_type {
+                lines.push(Line::from(vec![
+                    Span::styled("  Type    : ", Style::default().fg(tone(Color::DarkGray))),
+                    Span::styled(
+                        content_type.clone(),
+                        Style::default().fg(tone(Color::White)),
+                    ),
+                ]));
+            }
+            if let Some(content_length) = content_length {
+                lines.push(Line::from(vec![
+                    Span::styled("  Payload : ", Style::default().fg(tone(Color::DarkGray))),
+                    Span::styled(
+                        format!(
+                            "{content_length} bytes{}",
+                            if *payload_truncated {
+                                " (preview truncated)"
+                            } else {
+                                ""
+                            }
+                        ),
+                        Style::default().fg(tone(Color::White)),
+                    ),
+                ]));
+            }
+            if !payload_preview.is_empty() {
+                lines.push(Line::from(""));
+                lines.push(Line::from(Span::styled(
+                    "  Payload preview",
+                    Style::default()
+                        .fg(tone(Color::Magenta))
+                        .add_modifier(Modifier::BOLD),
+                )));
+                for line in payload_preview.lines().take(8) {
+                    lines.push(Line::from(Span::styled(
+                        format!("  {line}"),
+                        Style::default().fg(tone(Color::DarkGray)),
+                    )));
+                }
+            }
+        }
+    }
+
+    if let Some(status) = &activity.status {
+        lines.push(Line::from(vec![
+            Span::styled("  Status  : ", Style::default().fg(tone(Color::DarkGray))),
+            Span::styled(
+                status.clone(),
+                Style::default()
+                    .fg(tone(status_color))
+                    .add_modifier(Modifier::BOLD),
+            ),
+        ]));
+    }
+
+    lines.push(Line::from(""));
+
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+    if inner.height == 0 || inner.width == 0 {
+        return;
+    }
+
+    let footer_height = if inner.height > 0 { 1 } else { 0 };
+    let header_height = (lines.len() as u16).min(inner.height.saturating_sub(footer_height));
+    let footer_height = footer_height.min(inner.height.saturating_sub(header_height));
+    let output_height = inner
+        .height
+        .saturating_sub(header_height)
+        .saturating_sub(footer_height);
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(header_height),
+            Constraint::Length(output_height),
+            Constraint::Length(footer_height),
+        ])
+        .split(inner);
+
+    if header_height > 0 {
+        frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), chunks[0]);
+    }
+    if output_height > 0 {
+        activity.terminal.resize(chunks[1].height, chunks[1].width);
+        let mut term = activity.terminal.term.lock();
+        render_term_buffer(frame, chunks[1], &mut *term, dimmed, false, false, 0);
+    }
+    if footer_height > 0 {
+        frame.render_widget(
+            Paragraph::new(Line::from(Span::styled(
+                "  [^C] Cancel request   [Esc/^B] Back to sidebar",
+                Style::default().fg(tone(Color::DarkGray)),
+            ))),
+            chunks[2],
+        );
+    }
+}
+
+fn hostdo_timeout_label(activity: &crate::activity::Activity, timeout_secs: u64) -> String {
+    if activity.command_started_at.is_some() {
+        return format!("{timeout_secs}s command-only");
+    }
+
+    match &activity.state {
+        crate::activity::ActivityState::PullingImage => {
+            format!("{timeout_secs}s command-only, starts after image is ready")
+        }
+        crate::activity::ActivityState::PendingApproval => {
+            format!("{timeout_secs}s command-only, starts after approval")
+        }
+        state if state.is_terminal() => {
+            format!("{timeout_secs}s command-only, command did not run")
+        }
+        _ => format!("{timeout_secs}s command-only, starts when command runs"),
+    }
+}
+
+fn activity_status_color(state: &crate::activity::ActivityState) -> Color {
+    match state {
+        crate::activity::ActivityState::PendingApproval => Color::Yellow,
+        crate::activity::ActivityState::PullingImage => Color::Yellow,
+        crate::activity::ActivityState::Running => Color::Yellow,
+        crate::activity::ActivityState::Forwarding => Color::Yellow,
+        crate::activity::ActivityState::Complete => Color::Green,
+        crate::activity::ActivityState::Failed => Color::Red,
+        crate::activity::ActivityState::Denied => Color::Red,
+        crate::activity::ActivityState::Cancelled => Color::Red,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::activity::{Activity, ActivityKind, ActivityState};
+    use std::sync::{Arc, atomic::AtomicBool};
+
+    #[test]
+    fn activity_status_color_uses_progress_success_failure_palette() {
+        assert_eq!(
+            activity_status_color(&ActivityState::PendingApproval),
+            Color::Yellow
+        );
+        assert_eq!(
+            activity_status_color(&ActivityState::PullingImage),
+            Color::Yellow
+        );
+        assert_eq!(
+            activity_status_color(&ActivityState::Running),
+            Color::Yellow
+        );
+        assert_eq!(
+            activity_status_color(&ActivityState::Forwarding),
+            Color::Yellow
+        );
+        assert_eq!(
+            activity_status_color(&ActivityState::Complete),
+            Color::Green
+        );
+        assert_eq!(activity_status_color(&ActivityState::Failed), Color::Red);
+        assert_eq!(activity_status_color(&ActivityState::Denied), Color::Red);
+        assert_eq!(activity_status_color(&ActivityState::Cancelled), Color::Red);
+    }
+
+    #[test]
+    fn hostdo_timeout_label_explains_command_only_timer() {
+        let mut activity = Activity::new(
+            "project".to_string(),
+            Some("container".to_string()),
+            ActivityKind::Hostdo {
+                argv: vec!["cargo".to_string(), "test".to_string()],
+                image: Some("rust".to_string()),
+                timeout_secs: 120,
+            },
+            ActivityState::PullingImage,
+            Arc::new(AtomicBool::new(false)),
+        );
+
+        assert_eq!(
+            hostdo_timeout_label(&activity, 120),
+            "120s command-only, starts after image is ready"
+        );
+
+        activity.mark_command_started(std::time::Instant::now());
+        assert_eq!(hostdo_timeout_label(&activity, 120), "120s command-only");
+    }
 }
 
 // ── Idle screen ───────────────────────────────────────────────────────────────
@@ -228,7 +554,7 @@ pub(crate) fn render_project_settings(
                     format!(
                         "  hostdo: {}, network: {}",
                         r.hostdo.commands.len(),
-                        r.network.allowlist.len()
+                        r.network.allowlist.len() + r.network.denylist.len()
                     ),
                     Style::default().fg(tone(Color::White)),
                 ),
@@ -280,7 +606,7 @@ pub(crate) fn render_terminal_title_hint(frame: &mut Frame, area: Rect, in_scrol
     let hint = if in_scroll_mode {
         "[Esc/q] exit scroll"
     } else {
-        "[Ctrl+S] for scroll"
+        "[^S] scroll  [Esc/^B] sidebar"
     };
     let hint_style = if in_scroll_mode {
         Style::default().fg(Color::Yellow)

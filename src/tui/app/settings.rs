@@ -206,22 +206,7 @@ impl App {
         }
 
         if key.code == KeyCode::Esc {
-            let now = std::time::Instant::now();
-            let threshold = std::time::Duration::from_millis(400);
-            if self
-                .last_terminal_esc
-                .map(|prev| now.duration_since(prev) <= threshold)
-                .unwrap_or(false)
-            {
-                self.last_terminal_esc = None;
-                if self.terminal_fullscreen {
-                    self.close_terminal_fullscreen();
-                } else {
-                    self.should_quit = true;
-                }
-                return;
-            }
-            self.last_terminal_esc = Some(now);
+            self.focus_sidebar_shortcut();
             return;
         } else {
             self.last_terminal_esc = None;

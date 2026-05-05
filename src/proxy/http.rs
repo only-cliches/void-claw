@@ -1,10 +1,11 @@
 use anyhow::Result;
 use std::time::Duration;
-use tokio::io::{AsyncRead, AsyncReadExt};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::sync::oneshot;
 use tracing::warn;
 
+use crate::activity::{Activity, ActivityState, wait_cancelled};
 use crate::config;
 use crate::proxy::helpers::{
     extract_host, parse_source_from_headers, strip_scheme_and_host, write_error_any,
@@ -59,6 +60,18 @@ pub(crate) async fn handle_plain_http(mut stream: TcpStream, state: ProxyState) 
     let path = strip_scheme_and_host(&path);
 
     let body = read_body_any(&mut stream, &headers, body_remainder).await?;
+    let activity = state.start_network_activity(
+        source_project.clone(),
+        source_container.clone(),
+        &method,
+        &host,
+        &path,
+        "http",
+        &headers,
+        &body,
+        ActivityState::Forwarding,
+    );
+    state.activity_line(&activity.id, "request body read");
 
     if source_project.is_none() {
         warn!(
@@ -86,6 +99,11 @@ pub(crate) async fn handle_plain_http(mut stream: TcpStream, state: ProxyState) 
         NetworkPolicy::Auto => true,
         NetworkPolicy::Deny => false,
         NetworkPolicy::Prompt => {
+            state.activity_state(
+                &activity.id,
+                ActivityState::PendingApproval,
+                Some("waiting for network approval".to_string()),
+            );
             prompt_network(
                 &state,
                 &method,
@@ -95,19 +113,48 @@ pub(crate) async fn handle_plain_http(mut stream: TcpStream, state: ProxyState) 
                 source_container.clone(),
                 source_status.as_str(),
                 has_proxy_authorization,
+                Some(&activity),
             )
             .await
         }
     };
 
     if !allowed {
+        let state_label = if activity.is_cancelled() {
+            ActivityState::Cancelled
+        } else {
+            ActivityState::Denied
+        };
+        state.activity_finished(
+            &activity.id,
+            state_label,
+            Some("blocked by network policy".to_string()),
+        );
         write_error_any(&mut stream, 403, "Forbidden by harness-hat policy").await?;
         return Ok(());
     }
 
-    let url = format!("http://{host}{path}");
-    let response = forward_request(&state.client, &method, &url, &headers, body).await?;
-    write_response_any(&mut stream, response).await
+    if activity.is_cancelled() {
+        state.activity_finished(
+            &activity.id,
+            ActivityState::Cancelled,
+            Some("cancelled before forwarding".to_string()),
+        );
+        return Ok(());
+    }
+
+    forward_request_with_activity(
+        &state,
+        &mut stream,
+        &activity,
+        "http",
+        &host,
+        &path,
+        &method,
+        &headers,
+        body,
+    )
+    .await
 }
 
 pub(crate) async fn prompt_network(
@@ -119,9 +166,20 @@ pub(crate) async fn prompt_network(
     source_container: Option<String>,
     source_status: &str,
     has_proxy_authorization: bool,
+    activity: Option<&Activity>,
 ) -> bool {
     let (tx, rx) = oneshot::channel();
+    let (activity_id, cancel_flag) = activity
+        .map(|activity| (activity.id.clone(), activity.cancel_flag.clone()))
+        .unwrap_or_else(|| {
+            (
+                uuid::Uuid::new_v4().to_string(),
+                std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            )
+        });
     let item = PendingNetworkItem {
+        activity_id,
+        cancel_flag,
         source_project,
         source_container,
         source_status: source_status.to_string(),
@@ -137,6 +195,75 @@ pub(crate) async fn prompt_network(
     match tokio::time::timeout(Duration::from_secs(300), rx).await {
         Ok(Ok(NetworkDecision::Allow)) => true,
         _ => false,
+    }
+}
+
+pub(crate) async fn forward_request_with_activity<W>(
+    state: &ProxyState,
+    stream: &mut W,
+    activity: &Activity,
+    scheme: &str,
+    host: &str,
+    path: &str,
+    method: &str,
+    headers: &[(String, String)],
+    body: Vec<u8>,
+) -> Result<()>
+where
+    W: AsyncWriteExt + Unpin,
+{
+    if activity.is_cancelled() {
+        state.activity_finished(
+            &activity.id,
+            ActivityState::Cancelled,
+            Some("cancelled before forwarding".to_string()),
+        );
+        return Ok(());
+    }
+
+    let url = format!("{scheme}://{host}{path}");
+    state.activity_state(
+        &activity.id,
+        ActivityState::Forwarding,
+        Some(format!("forwarding to {url}")),
+    );
+
+    let response = tokio::select! {
+        response = forward_request(&state.client, method, &url, headers, body) => match response {
+            Ok(response) => response,
+            Err(e) => {
+                state.activity_finished(&activity.id, ActivityState::Failed, Some(e.to_string()));
+                return Err(e);
+            }
+        },
+        _ = wait_cancelled(activity.cancel_flag.clone()) => {
+            state.activity_finished(
+                &activity.id,
+                ActivityState::Cancelled,
+                Some("cancelled".to_string()),
+            );
+            return Ok(());
+        }
+    };
+
+    state.activity_line(
+        &activity.id,
+        format!("upstream response {}", response.status()),
+    );
+
+    match write_response_any(stream, response).await {
+        Ok(()) => {
+            state.activity_finished(
+                &activity.id,
+                ActivityState::Complete,
+                Some("response forwarded".to_string()),
+            );
+            Ok(())
+        }
+        Err(e) => {
+            state.activity_finished(&activity.id, ActivityState::Failed, Some(e.to_string()));
+            Err(e)
+        }
     }
 }
 
